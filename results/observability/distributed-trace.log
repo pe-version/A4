@@ -1,0 +1,36 @@
+# Distributed Trace Demonstration
+# Trace ID: f5066d07-1c8b-401d-b5f4-6219da618876
+# Trigger: PUT /sensors/sensor-001 {"value": 95.0} with X-Correlation-ID: TRACE-DEMO-001
+
+=== Step 1: Client request (go-service via Nginx LB) ===
+go-service-1  | 2026/04/13 15:23:41 INFO Sensor updated, publishing event sensor_id=sensor-001 trace_id=f5066d07-1c8b-401d-b5f4-6219da618876
+go-service-1  | 2026/04/13 15:23:41 INFO Request completed correlation_id=TRACE-DEMO-001 method=PUT path=/sensors/sensor-001 status=200 duration_ms=15
+
+=== Step 2: RabbitMQ publish (go-service) ===
+go-service-1  | 2026/04/13 15:23:41 INFO Published sensor.updated event sensor_id=sensor-001 value=95 trace_id=f5066d07-1c8b-401d-b5f4-6219da618876
+
+=== Step 3: RabbitMQ consume + alert evaluation (go-alert-service) ===
+go-alert-service-1  | 2026/04/13 15:23:41 INFO Received sensor.updated event sensor_id=sensor-001 value=95 trace_id=f5066d07-1c8b-401d-b5f4-6219da618876
+go-alert-service-1  | 2026/04/13 15:23:41 INFO Alert triggered alert_id=alert-004 rule_id=rule-001 trace_id=f5066d07-1c8b-401d-b5f4-6219da618876 message="Sensor sensor-001 value 95.00 gt threshold 80.00 (rule: Living Room Temperature High)"
+go-alert-service-1  | 2026/04/13 15:23:41 INFO Alert triggered alert_id=alert-005 rule_id=rule-004 trace_id=f5066d07-1c8b-401d-b5f4-6219da618876 message="Sensor sensor-001 value 95.00 gt threshold 90.00 (rule: Verify Smoke Test Rule Go)"
+
+=== Step 4: Metrics snapshot (go-alert-service :9090/metrics) ===
+# HELP events_received_total Total sensor.updated events consumed from RabbitMQ.
+# TYPE events_received_total counter
+events_received_total 1
+
+# HELP events_processed_total Total events that completed evaluation.
+# TYPE events_processed_total counter
+events_processed_total 1
+
+# HELP alerts_triggered_total Total alerts triggered by threshold crossings.
+# TYPE alerts_triggered_total counter
+alerts_triggered_total 2
+
+# HELP event_processing_avg_microseconds Average event processing duration in microseconds.
+# TYPE event_processing_avg_microseconds gauge
+event_processing_avg_microseconds 32002.0
+
+# HELP pipeline_info Pipeline configuration.
+# TYPE pipeline_info gauge
+pipeline_info{mode="blocking",worker_count="4"} 1
