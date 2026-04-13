@@ -29,14 +29,24 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("API_TOKEN environment variable is required")
 	}
 
+	databaseDSN := os.Getenv("DATABASE_DSN")
+	if databaseDSN == "" {
+		return nil, fmt.Errorf("DATABASE_DSN environment variable is required")
+	}
+
+	rabbitmqURL := os.Getenv("RABBITMQ_URL")
+	if rabbitmqURL == "" {
+		return nil, fmt.Errorf("RABBITMQ_URL environment variable is required")
+	}
+
 	return &Config{
 		Port:         port,
-		DatabaseDSN:  getEnv("DATABASE_DSN", "postgres://iot_user:iot_secret@sensor-db:5432/sensors?sslmode=disable"),
+		DatabaseDSN:  databaseDSN,
 		APIToken:     apiToken,
 		LogLevel:     getEnv("LOG_LEVEL", "INFO"),
 		LogFormat:    getEnv("LOG_FORMAT", "json"),
 		SeedDataPath: getEnv("SEED_DATA_PATH", "/app/data/sensors.json"),
-		RabbitMQURL:  getEnv("RABBITMQ_URL", "amqp://iot_service:iot_secret@rabbitmq:5672/"),
+		RabbitMQURL:  rabbitmqURL,
 	}, nil
 }
 

@@ -34,6 +34,16 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("API_TOKEN environment variable is required")
 	}
 
+	databaseDSN := os.Getenv("DATABASE_DSN")
+	if databaseDSN == "" {
+		return nil, fmt.Errorf("DATABASE_DSN environment variable is required")
+	}
+
+	rabbitmqURL := os.Getenv("RABBITMQ_URL")
+	if rabbitmqURL == "" {
+		return nil, fmt.Errorf("RABBITMQ_URL environment variable is required")
+	}
+
 	cbFailMax, err := strconv.Atoi(getEnv("CB_FAIL_MAX", "5"))
 	if err != nil {
 		cbFailMax = 5
@@ -51,13 +61,13 @@ func Load() (*Config, error) {
 
 	return &Config{
 		Port:             port,
-		DatabaseDSN:      getEnv("DATABASE_DSN", "postgres://iot_user:iot_secret@alert-db:5432/alerts?sslmode=disable"),
+		DatabaseDSN:      databaseDSN,
 		APIToken:         apiToken,
 		LogLevel:         getEnv("LOG_LEVEL", "INFO"),
 		LogFormat:        getEnv("LOG_FORMAT", "json"),
 		SeedDataPath:     getEnv("SEED_DATA_PATH", "/app/data/alert_rules.json"),
 		SensorServiceURL: getEnv("SENSOR_SERVICE_URL", "http://go-sensor-lb:8080"),
-		RabbitMQURL:      getEnv("RABBITMQ_URL", "amqp://iot_service:iot_secret@rabbitmq:5672/"),
+		RabbitMQURL:      rabbitmqURL,
 		CBFailMax:        cbFailMax,
 		CBResetTimeout:   cbResetTimeout,
 		PipelineMode:     getEnv("PIPELINE_MODE", "blocking"),
