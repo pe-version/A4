@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+// ValidationError represents a client-side validation failure (safe to return to the caller).
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string { return e.Message }
+
 // ValidSensorTypes contains all allowed sensor types.
 var ValidSensorTypes = map[string]bool{
 	"temperature": true,
@@ -63,13 +70,13 @@ type SensorCreate struct {
 // Validate checks if the SensorCreate fields are valid.
 func (s *SensorCreate) Validate() error {
 	if !ValidSensorTypes[s.Type] {
-		return fmt.Errorf("invalid sensor type: %s", s.Type)
+		return &ValidationError{fmt.Sprintf("invalid sensor type: %s", s.Type)}
 	}
 	if !ValidSensorUnits[s.Unit] {
-		return fmt.Errorf("invalid sensor unit: %s", s.Unit)
+		return &ValidationError{fmt.Sprintf("invalid sensor unit: %s", s.Unit)}
 	}
 	if !ValidSensorStatuses[s.Status] {
-		return fmt.Errorf("invalid sensor status: %s", s.Status)
+		return &ValidationError{fmt.Sprintf("invalid sensor status: %s", s.Status)}
 	}
 	return nil
 }
@@ -88,13 +95,13 @@ type SensorUpdate struct {
 // Validate checks if the SensorUpdate fields are valid.
 func (s *SensorUpdate) Validate() error {
 	if s.Type != nil && !ValidSensorTypes[*s.Type] {
-		return fmt.Errorf("invalid sensor type: %s", *s.Type)
+		return &ValidationError{fmt.Sprintf("invalid sensor type: %s", *s.Type)}
 	}
 	if s.Unit != nil && !ValidSensorUnits[*s.Unit] {
-		return fmt.Errorf("invalid sensor unit: %s", *s.Unit)
+		return &ValidationError{fmt.Sprintf("invalid sensor unit: %s", *s.Unit)}
 	}
 	if s.Status != nil && !ValidSensorStatuses[*s.Status] {
-		return fmt.Errorf("invalid sensor status: %s", *s.Status)
+		return &ValidationError{fmt.Sprintf("invalid sensor status: %s", *s.Status)}
 	}
 	return nil
 }

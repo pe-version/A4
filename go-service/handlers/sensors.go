@@ -74,8 +74,16 @@ func (h *SensorHandler) CreateSensor(c *gin.Context) {
 
 	sensor, err := h.repo.Create(&input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
-			Detail: err.Error(),
+		// Validation errors from the model layer are safe to return
+		if _, ok := err.(*models.ValidationError); ok {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{
+				Detail: err.Error(),
+			})
+			return
+		}
+		slog.Error("Failed to create sensor", "error", err)
+		c.JSON(http.StatusServiceUnavailable, models.ErrorResponse{
+			Detail: "Service temporarily unavailable",
 		})
 		return
 	}
@@ -97,8 +105,15 @@ func (h *SensorHandler) UpdateSensor(c *gin.Context) {
 
 	sensor, err := h.repo.Update(sensorID, &input)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse{
-			Detail: err.Error(),
+		if _, ok := err.(*models.ValidationError); ok {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse{
+				Detail: err.Error(),
+			})
+			return
+		}
+		slog.Error("Failed to update sensor", "error", err, "sensor_id", sensorID)
+		c.JSON(http.StatusServiceUnavailable, models.ErrorResponse{
+			Detail: "Service temporarily unavailable",
 		})
 		return
 	}

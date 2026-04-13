@@ -1,0 +1,44 @@
+=== PRE-KILL: Verify all 3 replicas respond ===
+Request 1: HTTP 200 (0.006135s)
+Request 2: HTTP 200 (0.003938s)
+Request 3: HTTP 200 (0.003835s)
+Request 4: HTTP 200 (0.002027s)
+Request 5: HTTP 200 (0.001974s)
+Request 6: HTTP 200 (0.002186s)
+
+=== KILL: Stopping go-service-2 ===
+a4-go-service-2
+
+=== POST-KILL: Immediate requests (replica-2 dead) ===
+Request 1: HTTP 200 (0.005735s)
+Request 2: HTTP 200 (0.004055s)
+Request 3: HTTP 200 (0.003482s)
+Request 4: HTTP 200 (14.289466s)
+Request 5: HTTP 200 (0.005602s)
+Request 6: HTTP 200 (0.004463s)
+Request 7: HTTP 200 (0.004835s)
+Request 8: HTTP 200 (0.004380s)
+Request 9: HTTP 200 (0.005606s)
+Request 10: HTTP 200 (0.004775s)
+
+=== LOAD TEST: 100 requests with replica-2 dead ===
+Complete requests:      100
+Failed requests:        0
+Requests per second:    10.77 [#/sec] (mean)
+Time per request:       928.354 [ms] (mean)
+Time per request:       92.835 [ms] (mean, across all concurrent requests)
+  50%     16
+  90%   3072
+  99%   3277
+
+=== RECOVERY: Checking if Docker restarted replica-2 ===
+a4-go-service-1             a4-go-service                       "./sensor-service"       go-service             34 minutes ago   Up 34 minutes (healthy)   8080/tcp
+a4-go-service-3             a4-go-service                       "./sensor-service"       go-service             14 minutes ago   Up 14 minutes (healthy)   8080/tcp
+
+=== POST-RECOVERY: Requests after replica-2 restarted ===
+Request 1: HTTP 200 (0.008196s)
+Request 2: HTTP 200 (0.006966s)
+Request 3: HTTP 200 (0.004495s)
+Request 4: HTTP 200 (0.004426s)
+Request 5: HTTP 200 (0.003816s)
+Request 6: HTTP 200 (0.008105s)

@@ -1,0 +1,37 @@
+=== PRE-STOP: Verify normal operation ===
+{"id":"sensor-001","name":"Living Room Thermostat","type":"temperature","location":"living_room","value":72.5,"unit":"fahrenheit","status":"active","last_reading":"2026-04-13T04:40:11Z","created_at":"2026-04-13T04:38:36Z","updated_at":"2026-04-13T04:40:11Z"}
+HTTP 200
+
+=== STOP: Killing sensor-db (Postgres) ===
+a4-sensor-db-1
+
+=== POST-STOP: Requests with DB down ===
+--- GET /sensors/sensor-001 (data endpoint) ---
+{"detail":"Failed to retrieve sensor"}
+HTTP 500 (0.176367s)
+{"detail":"Failed to retrieve sensor"}
+HTTP 500 (0.005733s)
+{"detail":"Failed to retrieve sensor"}
+HTTP 500 (0.005785s)
+
+--- GET /health (no DB needed) ---
+{"status":"ok","service":"go"}
+HTTP 200 (0.002140s)
+
+--- POST /sensors (write with DB down) ---
+{"detail":"dial tcp: lookup sensor-db on 127.0.0.11:53: no such host"}
+HTTP 400
+
+--- Go service logs during DB outage ---
+go-service-2  | 2026/04/13 05:21:40 INFO Request completed correlation_id=3bd72711-34ec-4571-a32d-b53591b2a4e1 method=POST path=/sensors status=400 duration_ms=11
+
+=== RESTART: Starting sensor-db ===
+a4-sensor-db-1
+
+=== POST-RECOVERY: Requests after DB restart ===
+{"id":"sensor-001","name":"Living Room Thermostat","type":"temperature","location":"living_room","value":72.5,"unit":"fahrenheit","status":"active","last_reading":"2026-04-13T04:40:11Z","created_at":"2026-04-13T04:38:36Z","updated_at":"2026-04-13T04:40:11Z"}
+HTTP 200 (0.020779s)
+{"id":"sensor-001","name":"Living Room Thermostat","type":"temperature","location":"living_room","value":72.5,"unit":"fahrenheit","status":"active","last_reading":"2026-04-13T04:40:11Z","created_at":"2026-04-13T04:38:36Z","updated_at":"2026-04-13T04:40:11Z"}
+HTTP 200 (0.010215s)
+{"id":"sensor-001","name":"Living Room Thermostat","type":"temperature","location":"living_room","value":72.5,"unit":"fahrenheit","status":"active","last_reading":"2026-04-13T04:40:11Z","created_at":"2026-04-13T04:38:36Z","updated_at":"2026-04-13T04:40:11Z"}
+HTTP 200 (0.009634s)
