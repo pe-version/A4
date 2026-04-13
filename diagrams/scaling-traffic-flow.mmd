@@ -1,0 +1,15 @@
+graph LR
+    Client[Client / Load Test]
+    LB[Nginx LB :8080]
+    R1[go-service-1 :8080]
+    R2[go-service-2 :8080]
+    R3[go-service-3 :8080]
+    DB[(sensor-db<br/>Postgres)]
+
+    Client -->|HTTP| LB
+    LB -->|round-robin| R1
+    LB -->|round-robin| R2
+    LB -->|round-robin| R3
+    R1 --> DB
+    R2 --> DB
+    R3 --> DB

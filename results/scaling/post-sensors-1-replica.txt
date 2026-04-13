@@ -1,0 +1,58 @@
+This is ApacheBench, Version 2.3 <$Revision: 1913912 $>
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking localhost (be patient)
+Completed 100 requests
+Completed 200 requests
+Completed 300 requests
+Completed 400 requests
+Completed 500 requests
+Completed 600 requests
+Completed 700 requests
+Completed 800 requests
+Completed 900 requests
+Completed 1000 requests
+Finished 1000 requests
+
+
+Server Software:        nginx/1.29.8
+Server Hostname:        localhost
+Server Port:            8080
+
+Document Path:          /sensors
+Document Length:        250 bytes
+
+Concurrency Level:      50
+Time taken for tests:   18.316 seconds
+Complete requests:      1000
+Failed requests:        953
+   (Connect: 0, Receive: 0, Length: 953, Exceptions: 0)
+Non-2xx responses:      953
+Total transferred:      260849 bytes
+Total body sent:        327000
+HTML transferred:       87990 bytes
+Requests per second:    54.60 [#/sec] (mean)
+Time per request:       915.824 [ms] (mean)
+Time per request:       18.316 [ms] (mean, across all concurrent requests)
+Transfer rate:          13.91 [Kbytes/sec] received
+                        17.43 kb/s sent
+                        31.34 kb/s total
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:        0    2   1.3      2       5
+Processing:    11  882 375.5    807    2200
+Waiting:        7  882 375.5    806    2200
+Total:         11  884 375.5    808    2201
+
+Percentage of the requests served within a certain time (ms)
+  50%    808
+  66%   1003
+  75%   1188
+  80%   1198
+  90%   1397
+  95%   1594
+  98%   1798
+  99%   1995
+ 100%   2201 (longest request)
