@@ -19,43 +19,45 @@ import (
 
 const testToken = "test-secret-token"
 
-// setupTestRouter creates a test router with a temporary database.
+// testDSN returns the Postgres DSN for tests.
+// Set TEST_DATABASE_DSN to override; defaults to a local test database.
+func testDSN() string {
+	if dsn := os.Getenv("TEST_DATABASE_DSN"); dsn != "" {
+		return dsn
+	}
+	return "postgres://iot_user:iot_secret@localhost:5432/sensors_test?sslmode=disable"
+}
+
+// setupTestRouter creates a test router backed by a Postgres test database.
+// Each test gets a clean slate by truncating tables before returning.
 func setupTestRouter(t *testing.T) (*gin.Engine, func()) {
-	// Create temp database
-	tmpFile, err := os.CreateTemp("", "test-*.db")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	tmpFile.Close()
-	dbPath := tmpFile.Name()
+	dsn := testDSN()
 
-	// Connect to database
-	db, err := database.Connect(dbPath)
+	db, err := database.Connect(dsn)
 	if err != nil {
-		os.Remove(dbPath)
-		t.Fatalf("Failed to connect to database: %v", err)
+		t.Fatalf("Failed to connect to test database (is Postgres running?): %v", err)
 	}
 
-	// Initialize schema
 	if err := database.InitSchema(db); err != nil {
 		db.Close()
-		os.Remove(dbPath)
 		t.Fatalf("Failed to initialize schema: %v", err)
 	}
 
-	// Create repository and handlers
-	sensorRepo := repositories.NewSQLiteSensorRepository(db)
+	// Truncate tables for a clean test
+	if _, err := db.Exec("TRUNCATE TABLE sensors"); err != nil {
+		db.Close()
+		t.Fatalf("Failed to truncate sensors table: %v", err)
+	}
+
+	sensorRepo := repositories.NewSensorRepository(db)
 	healthHandler := handlers.NewHealthHandler()
 	sensorHandler := handlers.NewSensorHandler(sensorRepo, nil)
 
-	// Set up router
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
-	// Health endpoint - no auth required (for load balancer probes)
 	router.GET("/health", healthHandler.Health)
 
-	// Protected routes - require Bearer token
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware(testToken))
 	protected.GET("/sensors", sensorHandler.ListSensors)
@@ -64,10 +66,9 @@ func setupTestRouter(t *testing.T) (*gin.Engine, func()) {
 	protected.PUT("/sensors/:id", sensorHandler.UpdateSensor)
 	protected.DELETE("/sensors/:id", sensorHandler.DeleteSensor)
 
-	// Return cleanup function
 	cleanup := func() {
+		db.Exec("TRUNCATE TABLE sensors")
 		db.Close()
-		os.Remove(dbPath)
 	}
 
 	return router, cleanup
@@ -193,7 +194,6 @@ func TestHealthEndpointNoAuthRequired(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/health", nil)
-	// No Authorization header - health should work without auth
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {

@@ -1,7 +1,7 @@
 /*
 IoT Alert Service - Go (Gin)
 
-A RESTful API for managing alert rules and triggered alerts with SQLite persistence,
+A RESTful API for managing alert rules and triggered alerts with Postgres persistence,
 Bearer token authentication, circuit breaker resilience, and RabbitMQ event consumption.
 */
 package main
@@ -33,7 +33,7 @@ func main() {
 	}
 
 	// Connect to database
-	db, err := database.Connect(cfg.DatabasePath)
+	db, err := database.Connect(cfg.DatabaseDSN)
 	if err != nil {
 		slog.Error("Failed to connect to database", "error", err)
 		os.Exit(1)
@@ -53,8 +53,8 @@ func main() {
 	}
 
 	// Create repositories
-	ruleRepo := repositories.NewSQLiteAlertRuleRepository(db)
-	alertRepo := repositories.NewSQLiteTriggeredAlertRepository(db)
+	ruleRepo := repositories.NewAlertRuleRepository(db)
+	alertRepo := repositories.NewTriggeredAlertRepository(db)
 
 	// Create sensor client with circuit breaker
 	sensorClient := clients.NewSensorClient(

@@ -1,11 +1,11 @@
 module iot-sensor-service
 
-go 1.21
+go 1.23
 
 require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/google/uuid v1.6.0
-	github.com/mattn/go-sqlite3 v1.14.19
+	github.com/lib/pq v1.10.9
 	github.com/rabbitmq/amqp091-go v1.9.0
 )
 

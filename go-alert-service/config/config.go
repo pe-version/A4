@@ -9,7 +9,7 @@ import (
 // Config holds application configuration loaded from environment variables.
 type Config struct {
 	Port             int
-	DatabasePath     string
+	DatabaseDSN      string
 	APIToken         string
 	LogLevel         string
 	LogFormat        string
@@ -51,12 +51,12 @@ func Load() (*Config, error) {
 
 	return &Config{
 		Port:             port,
-		DatabasePath:     getEnv("DATABASE_PATH", "/app/data/alerts-go.db"),
+		DatabaseDSN:      getEnv("DATABASE_DSN", "postgres://iot_user:iot_secret@alert-db:5432/alerts?sslmode=disable"),
 		APIToken:         apiToken,
 		LogLevel:         getEnv("LOG_LEVEL", "INFO"),
 		LogFormat:        getEnv("LOG_FORMAT", "json"),
 		SeedDataPath:     getEnv("SEED_DATA_PATH", "/app/data/alert_rules.json"),
-		SensorServiceURL: getEnv("SENSOR_SERVICE_URL", "http://go-service:8080"),
+		SensorServiceURL: getEnv("SENSOR_SERVICE_URL", "http://go-sensor-lb:8080"),
 		RabbitMQURL:      getEnv("RABBITMQ_URL", "amqp://iot_service:iot_secret@rabbitmq:5672/"),
 		CBFailMax:        cbFailMax,
 		CBResetTimeout:   cbResetTimeout,

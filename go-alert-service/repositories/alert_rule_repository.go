@@ -17,18 +17,18 @@ type AlertRuleRepository interface {
 	Delete(id string) error
 }
 
-// SQLiteAlertRuleRepository implements AlertRuleRepository using SQLite.
-type SQLiteAlertRuleRepository struct {
+// PostgresAlertRuleRepository implements AlertRuleRepository using Postgres.
+type PostgresAlertRuleRepository struct {
 	db *sql.DB
 }
 
-// NewSQLiteAlertRuleRepository creates a new SQLite-backed alert rule repository.
-func NewSQLiteAlertRuleRepository(db *sql.DB) *SQLiteAlertRuleRepository {
-	return &SQLiteAlertRuleRepository{db: db}
+// NewAlertRuleRepository creates a new Postgres-backed alert rule repository.
+func NewAlertRuleRepository(db *sql.DB) *PostgresAlertRuleRepository {
+	return &PostgresAlertRuleRepository{db: db}
 }
 
 // GetAll retrieves all alert rules from the database.
-func (r *SQLiteAlertRuleRepository) GetAll() ([]models.AlertRule, error) {
+func (r *PostgresAlertRuleRepository) GetAll() ([]models.AlertRule, error) {
 	rows, err := r.db.Query(`
 		SELECT id, sensor_id, metric, operator, threshold, name, status, created_at, updated_at
 		FROM alert_rules ORDER BY id
@@ -57,11 +57,11 @@ func (r *SQLiteAlertRuleRepository) GetAll() ([]models.AlertRule, error) {
 }
 
 // GetByID retrieves an alert rule by its ID.
-func (r *SQLiteAlertRuleRepository) GetByID(id string) (*models.AlertRule, error) {
+func (r *PostgresAlertRuleRepository) GetByID(id string) (*models.AlertRule, error) {
 	var rule models.AlertRule
 	err := r.db.QueryRow(`
 		SELECT id, sensor_id, metric, operator, threshold, name, status, created_at, updated_at
-		FROM alert_rules WHERE id = ?
+		FROM alert_rules WHERE id = $1
 	`, id).Scan(&rule.ID, &rule.SensorID, &rule.Metric, &rule.Operator,
 		&rule.Threshold, &rule.Name, &rule.Status, &rule.CreatedAt, &rule.UpdatedAt)
 
@@ -75,10 +75,10 @@ func (r *SQLiteAlertRuleRepository) GetByID(id string) (*models.AlertRule, error
 }
 
 // GetActiveRulesForSensor retrieves all active rules for a given sensor.
-func (r *SQLiteAlertRuleRepository) GetActiveRulesForSensor(sensorID string) ([]models.AlertRule, error) {
+func (r *PostgresAlertRuleRepository) GetActiveRulesForSensor(sensorID string) ([]models.AlertRule, error) {
 	rows, err := r.db.Query(`
 		SELECT id, sensor_id, metric, operator, threshold, name, status, created_at, updated_at
-		FROM alert_rules WHERE sensor_id = ? AND status = 'active' ORDER BY id
+		FROM alert_rules WHERE sensor_id = $1 AND status = 'active' ORDER BY id
 	`, sensorID)
 	if err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func (r *SQLiteAlertRuleRepository) GetActiveRulesForSensor(sensorID string) ([]
 // Create inserts a new alert rule into the database.
 // Uses a transaction to ensure atomic ID generation and insertion,
 // preventing duplicate IDs under concurrent access.
-func (r *SQLiteAlertRuleRepository) Create(rule *models.AlertRuleCreate) (*models.AlertRule, error) {
+func (r *PostgresAlertRuleRepository) Create(rule *models.AlertRuleCreate) (*models.AlertRule, error) {
 	if err := rule.Validate(); err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (r *SQLiteAlertRuleRepository) Create(rule *models.AlertRuleCreate) (*model
 
 	_, err = tx.Exec(`
 		INSERT INTO alert_rules (id, sensor_id, metric, operator, threshold, name, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, newID, rule.SensorID, rule.Metric, rule.Operator, rule.Threshold, rule.Name, rule.Status, now, now)
 
 	if err != nil {
@@ -148,7 +148,7 @@ func (r *SQLiteAlertRuleRepository) Create(rule *models.AlertRuleCreate) (*model
 }
 
 // Update modifies an existing alert rule.
-func (r *SQLiteAlertRuleRepository) Update(id string, updates *models.AlertRuleUpdate) (*models.AlertRule, error) {
+func (r *PostgresAlertRuleRepository) Update(id string, updates *models.AlertRuleUpdate) (*models.AlertRule, error) {
 	existing, err := r.GetByID(id)
 	if err != nil {
 		return nil, err
@@ -161,35 +161,42 @@ func (r *SQLiteAlertRuleRepository) Update(id string, updates *models.AlertRuleU
 		return nil, err
 	}
 
-	query := "UPDATE alert_rules SET updated_at = ?"
+	argIdx := 2
+	query := "UPDATE alert_rules SET updated_at = $1"
 	args := []interface{}{models.Now()}
 
 	if updates.SensorID != nil {
-		query += ", sensor_id = ?"
+		query += fmt.Sprintf(", sensor_id = $%d", argIdx)
 		args = append(args, *updates.SensorID)
+		argIdx++
 	}
 	if updates.Metric != nil {
-		query += ", metric = ?"
+		query += fmt.Sprintf(", metric = $%d", argIdx)
 		args = append(args, *updates.Metric)
+		argIdx++
 	}
 	if updates.Operator != nil {
-		query += ", operator = ?"
+		query += fmt.Sprintf(", operator = $%d", argIdx)
 		args = append(args, *updates.Operator)
+		argIdx++
 	}
 	if updates.Threshold != nil {
-		query += ", threshold = ?"
+		query += fmt.Sprintf(", threshold = $%d", argIdx)
 		args = append(args, *updates.Threshold)
+		argIdx++
 	}
 	if updates.Name != nil {
-		query += ", name = ?"
+		query += fmt.Sprintf(", name = $%d", argIdx)
 		args = append(args, *updates.Name)
+		argIdx++
 	}
 	if updates.Status != nil {
-		query += ", status = ?"
+		query += fmt.Sprintf(", status = $%d", argIdx)
 		args = append(args, *updates.Status)
+		argIdx++
 	}
 
-	query += " WHERE id = ?"
+	query += fmt.Sprintf(" WHERE id = $%d", argIdx)
 	args = append(args, id)
 
 	_, err = r.db.Exec(query, args...)
@@ -201,8 +208,8 @@ func (r *SQLiteAlertRuleRepository) Update(id string, updates *models.AlertRuleU
 }
 
 // Delete removes an alert rule from the database.
-func (r *SQLiteAlertRuleRepository) Delete(id string) error {
-	result, err := r.db.Exec("DELETE FROM alert_rules WHERE id = ?", id)
+func (r *PostgresAlertRuleRepository) Delete(id string) error {
+	result, err := r.db.Exec("DELETE FROM alert_rules WHERE id = $1", id)
 	if err != nil {
 		return err
 	}

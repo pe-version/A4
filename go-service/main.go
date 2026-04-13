@@ -1,7 +1,7 @@
 /*
 IoT Sensor Service - Go (Gin)
 
-A RESTful API for managing IoT sensor devices with SQLite persistence
+A RESTful API for managing IoT sensor devices with Postgres persistence
 and Bearer token authentication.
 */
 package main
@@ -30,7 +30,7 @@ func main() {
 	}
 
 	// Connect to database
-	db, err := database.Connect(cfg.DatabasePath)
+	db, err := database.Connect(cfg.DatabaseDSN)
 	if err != nil {
 		slog.Error("Failed to connect to database", "error", err)
 		os.Exit(1)
@@ -50,7 +50,7 @@ func main() {
 	}
 
 	// Create repository
-	sensorRepo := repositories.NewSQLiteSensorRepository(db)
+	sensorRepo := repositories.NewSensorRepository(db)
 
 	// Create event publisher (connects to RabbitMQ; tolerates unavailability)
 	publisher := messaging.NewEventPublisher(cfg.RabbitMQURL)

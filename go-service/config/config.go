@@ -8,11 +8,11 @@ import (
 
 // Config holds application configuration loaded from environment variables.
 type Config struct {
-	Port         int
-	DatabasePath string
-	APIToken     string
-	LogLevel     string
-	LogFormat    string
+	Port        int
+	DatabaseDSN string
+	APIToken    string
+	LogLevel    string
+	LogFormat   string
 	SeedDataPath string
 	RabbitMQURL  string
 }
@@ -31,7 +31,7 @@ func Load() (*Config, error) {
 
 	return &Config{
 		Port:         port,
-		DatabasePath: getEnv("DATABASE_PATH", "/app/data/sensors-go.db"),
+		DatabaseDSN:  getEnv("DATABASE_DSN", "postgres://iot_user:iot_secret@sensor-db:5432/sensors?sslmode=disable"),
 		APIToken:     apiToken,
 		LogLevel:     getEnv("LOG_LEVEL", "INFO"),
 		LogFormat:    getEnv("LOG_FORMAT", "json"),

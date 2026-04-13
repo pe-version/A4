@@ -20,33 +20,40 @@ import (
 
 const testToken = "test-secret-token"
 
-// setupTestRouter creates a test router with a temporary in-memory database.
-// The sensor client is nil — CreateRule tests that need sensor validation
-// use a mock HTTP server instead (see setupTestRouterWithSensorServer).
+// testDSN returns the Postgres DSN for tests.
+// Set TEST_DATABASE_DSN to override; defaults to a local test database.
+func testDSN() string {
+	if dsn := os.Getenv("TEST_DATABASE_DSN"); dsn != "" {
+		return dsn
+	}
+	return "postgres://iot_user:iot_secret@localhost:5432/alerts_test?sslmode=disable"
+}
+
+// setupTestRouter creates a test router backed by a Postgres test database.
+// Each test gets a clean slate by truncating tables before returning.
 func setupTestRouter(t *testing.T) (*gin.Engine, func()) {
 	t.Helper()
 
-	tmpFile, err := os.CreateTemp("", "test-alerts-*.db")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	tmpFile.Close()
-	dbPath := tmpFile.Name()
+	dsn := testDSN()
 
-	db, err := database.Connect(dbPath)
+	db, err := database.Connect(dsn)
 	if err != nil {
-		os.Remove(dbPath)
-		t.Fatalf("Failed to connect to database: %v", err)
+		t.Fatalf("Failed to connect to test database (is Postgres running?): %v", err)
 	}
 
 	if err := database.InitSchema(db); err != nil {
 		db.Close()
-		os.Remove(dbPath)
 		t.Fatalf("Failed to initialize schema: %v", err)
 	}
 
-	ruleRepo := repositories.NewSQLiteAlertRuleRepository(db)
-	alertRepo := repositories.NewSQLiteTriggeredAlertRepository(db)
+	// Truncate tables for a clean test (triggered_alerts first due to FK)
+	if _, err := db.Exec("TRUNCATE TABLE triggered_alerts, alert_rules CASCADE"); err != nil {
+		db.Close()
+		t.Fatalf("Failed to truncate tables: %v", err)
+	}
+
+	ruleRepo := repositories.NewAlertRuleRepository(db)
+	alertRepo := repositories.NewTriggeredAlertRepository(db)
 
 	// Sensor client pointing at a non-existent server to simulate unavailability
 	sensorClient := clients.NewSensorClient("http://localhost:0", testToken, 1, 1)
@@ -72,8 +79,8 @@ func setupTestRouter(t *testing.T) (*gin.Engine, func()) {
 	protected.PUT("/alerts/:id", alertHandler.UpdateAlert)
 
 	cleanup := func() {
+		db.Exec("TRUNCATE TABLE triggered_alerts, alert_rules CASCADE")
 		db.Close()
-		os.Remove(dbPath)
 	}
 
 	return router, cleanup
@@ -98,30 +105,29 @@ func setupTestRouterWithSensorServer(t *testing.T, sensorExists bool) (*gin.Engi
 	})
 	mockServer := httptest.NewServer(mockSensor)
 
-	tmpFile, err := os.CreateTemp("", "test-alerts-*.db")
-	if err != nil {
-		mockServer.Close()
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	tmpFile.Close()
-	dbPath := tmpFile.Name()
+	dsn := testDSN()
 
-	db, err := database.Connect(dbPath)
+	db, err := database.Connect(dsn)
 	if err != nil {
 		mockServer.Close()
-		os.Remove(dbPath)
-		t.Fatalf("Failed to connect to database: %v", err)
+		t.Fatalf("Failed to connect to test database (is Postgres running?): %v", err)
 	}
 
 	if err := database.InitSchema(db); err != nil {
 		db.Close()
 		mockServer.Close()
-		os.Remove(dbPath)
 		t.Fatalf("Failed to initialize schema: %v", err)
 	}
 
-	ruleRepo := repositories.NewSQLiteAlertRuleRepository(db)
-	alertRepo := repositories.NewSQLiteTriggeredAlertRepository(db)
+	// Truncate tables for a clean test
+	if _, err := db.Exec("TRUNCATE TABLE triggered_alerts, alert_rules CASCADE"); err != nil {
+		db.Close()
+		mockServer.Close()
+		t.Fatalf("Failed to truncate tables: %v", err)
+	}
+
+	ruleRepo := repositories.NewAlertRuleRepository(db)
+	alertRepo := repositories.NewTriggeredAlertRepository(db)
 	sensorClient := clients.NewSensorClient(mockServer.URL, testToken, 5, 30)
 
 	healthHandler := handlers.NewHealthHandler()
@@ -143,8 +149,8 @@ func setupTestRouterWithSensorServer(t *testing.T, sensorExists bool) (*gin.Engi
 	protected.PUT("/alerts/:id", alertHandler.UpdateAlert)
 
 	cleanup := func() {
+		db.Exec("TRUNCATE TABLE triggered_alerts, alert_rules CASCADE")
 		db.Close()
-		os.Remove(dbPath)
 		mockServer.Close()
 	}
 

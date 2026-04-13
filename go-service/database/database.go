@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
 // Schema for sensors table
@@ -43,20 +42,13 @@ type SensorJSON struct {
 	LastReading string      `json:"last_reading"`
 }
 
-// Connect establishes a connection to the SQLite database.
-func Connect(dbPath string) (*sql.DB, error) {
-	// Ensure directory exists
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-
-	db, err := sql.Open("sqlite3", dbPath)
+// Connect establishes a connection to the Postgres database.
+func Connect(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	// Test connection
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
@@ -72,7 +64,6 @@ func InitSchema(db *sql.DB) error {
 
 // SeedFromJSON seeds the database from a JSON file if the table is empty.
 func SeedFromJSON(db *sql.DB, jsonPath string) error {
-	// Check if table has data
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM sensors").Scan(&count)
 	if err != nil {
@@ -84,7 +75,6 @@ func SeedFromJSON(db *sql.DB, jsonPath string) error {
 		return nil
 	}
 
-	// Read JSON file
 	data, err := os.ReadFile(jsonPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -101,10 +91,9 @@ func SeedFromJSON(db *sql.DB, jsonPath string) error {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	// Insert sensors
 	stmt, err := db.Prepare(`
 		INSERT INTO sensors (id, name, type, location, value, unit, status, last_reading, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`)
 	if err != nil {
 		return err
@@ -112,7 +101,6 @@ func SeedFromJSON(db *sql.DB, jsonPath string) error {
 	defer stmt.Close()
 
 	for _, sensor := range sensors {
-		// Convert value to float64
 		var value float64
 		switch v := sensor.Value.(type) {
 		case float64:

@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/lib/pq"
 )
 
 // Schema for alert_rules and triggered_alerts tables.
@@ -55,14 +54,9 @@ type AlertRuleJSON struct {
 	Status    string  `json:"status"`
 }
 
-// Connect establishes a connection to the SQLite database.
-func Connect(dbPath string) (*sql.DB, error) {
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-
-	db, err := sql.Open("sqlite3", dbPath)
+// Connect establishes a connection to the Postgres database.
+func Connect(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +105,7 @@ func SeedFromJSON(db *sql.DB, jsonPath string) error {
 
 	stmt, err := db.Prepare(`
 		INSERT INTO alert_rules (id, sensor_id, metric, operator, threshold, name, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`)
 	if err != nil {
 		return err

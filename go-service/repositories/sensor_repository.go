@@ -16,18 +16,18 @@ type SensorRepository interface {
 	Delete(id string) error
 }
 
-// SQLiteSensorRepository implements SensorRepository using SQLite.
-type SQLiteSensorRepository struct {
+// PostgresSensorRepository implements SensorRepository using Postgres.
+type PostgresSensorRepository struct {
 	db *sql.DB
 }
 
-// NewSQLiteSensorRepository creates a new SQLite-backed sensor repository.
-func NewSQLiteSensorRepository(db *sql.DB) *SQLiteSensorRepository {
-	return &SQLiteSensorRepository{db: db}
+// NewSensorRepository creates a new Postgres-backed sensor repository.
+func NewSensorRepository(db *sql.DB) *PostgresSensorRepository {
+	return &PostgresSensorRepository{db: db}
 }
 
 // GetAll retrieves all sensors from the database.
-func (r *SQLiteSensorRepository) GetAll() ([]models.Sensor, error) {
+func (r *PostgresSensorRepository) GetAll() ([]models.Sensor, error) {
 	rows, err := r.db.Query(`
 		SELECT id, name, type, location, value, unit, status, last_reading, created_at, updated_at
 		FROM sensors ORDER BY id
@@ -55,11 +55,11 @@ func (r *SQLiteSensorRepository) GetAll() ([]models.Sensor, error) {
 }
 
 // GetByID retrieves a sensor by its ID.
-func (r *SQLiteSensorRepository) GetByID(id string) (*models.Sensor, error) {
+func (r *PostgresSensorRepository) GetByID(id string) (*models.Sensor, error) {
 	var s models.Sensor
 	err := r.db.QueryRow(`
 		SELECT id, name, type, location, value, unit, status, last_reading, created_at, updated_at
-		FROM sensors WHERE id = ?
+		FROM sensors WHERE id = $1
 	`, id).Scan(&s.ID, &s.Name, &s.Type, &s.Location, &s.Value, &s.Unit, &s.Status, &s.LastReading, &s.CreatedAt, &s.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -72,13 +72,11 @@ func (r *SQLiteSensorRepository) GetByID(id string) (*models.Sensor, error) {
 }
 
 // Create inserts a new sensor into the database.
-func (r *SQLiteSensorRepository) Create(sensor *models.SensorCreate) (*models.Sensor, error) {
-	// Validate input
+func (r *PostgresSensorRepository) Create(sensor *models.SensorCreate) (*models.Sensor, error) {
 	if err := sensor.Validate(); err != nil {
 		return nil, err
 	}
 
-	// Generate new ID and insert atomically to prevent duplicate IDs under concurrency.
 	tx, err := r.db.Begin()
 	if err != nil {
 		return nil, err
@@ -101,7 +99,7 @@ func (r *SQLiteSensorRepository) Create(sensor *models.SensorCreate) (*models.Se
 
 	_, err = tx.Exec(`
 		INSERT INTO sensors (id, name, type, location, value, unit, status, last_reading, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, newID, sensor.Name, sensor.Type, sensor.Location, sensor.Value, sensor.Unit, sensor.Status, now, now, now)
 
 	if err != nil {
@@ -116,8 +114,7 @@ func (r *SQLiteSensorRepository) Create(sensor *models.SensorCreate) (*models.Se
 }
 
 // Update modifies an existing sensor.
-func (r *SQLiteSensorRepository) Update(id string, updates *models.SensorUpdate) (*models.Sensor, error) {
-	// Check if sensor exists
+func (r *PostgresSensorRepository) Update(id string, updates *models.SensorUpdate) (*models.Sensor, error) {
 	existing, err := r.GetByID(id)
 	if err != nil {
 		return nil, err
@@ -126,41 +123,47 @@ func (r *SQLiteSensorRepository) Update(id string, updates *models.SensorUpdate)
 		return nil, nil
 	}
 
-	// Validate input
 	if err := updates.Validate(); err != nil {
 		return nil, err
 	}
 
-	// Build update query
-	query := "UPDATE sensors SET updated_at = ?, last_reading = ?"
+	argIdx := 1
+	query := "UPDATE sensors SET updated_at = $1, last_reading = $2"
 	args := []interface{}{models.Now(), models.Now()}
+	argIdx = 3
 
 	if updates.Name != nil {
-		query += ", name = ?"
+		query += fmt.Sprintf(", name = $%d", argIdx)
 		args = append(args, *updates.Name)
+		argIdx++
 	}
 	if updates.Type != nil {
-		query += ", type = ?"
+		query += fmt.Sprintf(", type = $%d", argIdx)
 		args = append(args, *updates.Type)
+		argIdx++
 	}
 	if updates.Location != nil {
-		query += ", location = ?"
+		query += fmt.Sprintf(", location = $%d", argIdx)
 		args = append(args, *updates.Location)
+		argIdx++
 	}
 	if updates.Value != nil {
-		query += ", value = ?"
+		query += fmt.Sprintf(", value = $%d", argIdx)
 		args = append(args, *updates.Value)
+		argIdx++
 	}
 	if updates.Unit != nil {
-		query += ", unit = ?"
+		query += fmt.Sprintf(", unit = $%d", argIdx)
 		args = append(args, *updates.Unit)
+		argIdx++
 	}
 	if updates.Status != nil {
-		query += ", status = ?"
+		query += fmt.Sprintf(", status = $%d", argIdx)
 		args = append(args, *updates.Status)
+		argIdx++
 	}
 
-	query += " WHERE id = ?"
+	query += fmt.Sprintf(" WHERE id = $%d", argIdx)
 	args = append(args, id)
 
 	_, err = r.db.Exec(query, args...)
@@ -172,8 +175,8 @@ func (r *SQLiteSensorRepository) Update(id string, updates *models.SensorUpdate)
 }
 
 // Delete removes a sensor from the database.
-func (r *SQLiteSensorRepository) Delete(id string) error {
-	result, err := r.db.Exec("DELETE FROM sensors WHERE id = ?", id)
+func (r *PostgresSensorRepository) Delete(id string) error {
+	result, err := r.db.Exec("DELETE FROM sensors WHERE id = $1", id)
 	if err != nil {
 		return err
 	}

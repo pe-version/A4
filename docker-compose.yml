@@ -19,6 +19,50 @@ services:
           memory: 512M
           cpus: "0.5"
 
+  # ── Postgres databases ──────────────────────────────────────────────────────
+
+  sensor-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USER:-iot_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-iot_secret}
+      - POSTGRES_DB=sensors
+    volumes:
+      - sensor-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-iot_user} -d sensors"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  alert-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USER:-iot_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-iot_secret}
+      - POSTGRES_DB=alerts
+    volumes:
+      - alert-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-iot_user} -d alerts"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  # ── Python services (A3 baseline, not scaled) ───────────────────────────────
+
   python-service:
     image: hiphophippo/iot-python-service:a1
     build:
@@ -42,78 +86,6 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.5"
-
-  go-service:
-    image: hiphophippo/iot-go-service:a1
-    build:
-      context: ./go-service
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - GIN_MODE=release
-      - DATABASE_PATH=/app/data/sensors-go.db
-      - API_TOKEN=${API_TOKEN:?API_TOKEN is required}
-      - SEED_DATA_PATH=/app/data/sensors.json
-      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-iot_service}:${RABBITMQ_PASS:-iot_secret}@rabbitmq:5672/
-      - LOG_LEVEL=INFO
-      - LOG_FORMAT=json
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.5"
-
-  go-alert-service:
-    build:
-      context: ./go-alert-service
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "8081:8081"
-      - "9091:9090"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - GIN_MODE=release
-      - PORT=8081
-      - DATABASE_PATH=/app/data/alerts-go.db
-      - API_TOKEN=${API_TOKEN:?API_TOKEN is required}
-      - SEED_DATA_PATH=/app/data/alert_rules.json
-      - SENSOR_SERVICE_URL=http://go-service:8080
-      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-iot_service}:${RABBITMQ_PASS:-iot_secret}@rabbitmq:5672/
-      - LOG_LEVEL=INFO
-      - LOG_FORMAT=json
-      - CB_FAIL_MAX=5
-      - CB_RESET_TIMEOUT=30
-      - PIPELINE_MODE=${PIPELINE_MODE:-blocking}
-      - WORKER_COUNT=${WORKER_COUNT:-4}
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      go-service:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -161,3 +133,112 @@ services:
         limits:
           memory: 256M
           cpus: "0.5"
+
+  # ── Go services (scaled, Postgres-backed) ──────────────────────────────────
+
+  go-service:
+    build:
+      context: ./go-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - GIN_MODE=release
+      - DATABASE_DSN=postgres://${DB_USER:-iot_user}:${DB_PASSWORD:-iot_secret}@sensor-db:5432/sensors?sslmode=disable
+      - API_TOKEN=${API_TOKEN:?API_TOKEN is required}
+      - SEED_DATA_PATH=/app/data/sensors.json
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-iot_service}:${RABBITMQ_PASS:-iot_secret}@rabbitmq:5672/
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      sensor-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: ${SENSOR_REPLICAS:-1}
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  go-sensor-lb:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx/sensor.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - go-service
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+
+  go-alert-service:
+    build:
+      context: ./go-alert-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - GIN_MODE=release
+      - PORT=8081
+      - DATABASE_DSN=postgres://${DB_USER:-iot_user}:${DB_PASSWORD:-iot_secret}@alert-db:5432/alerts?sslmode=disable
+      - API_TOKEN=${API_TOKEN:?API_TOKEN is required}
+      - SEED_DATA_PATH=/app/data/alert_rules.json
+      - SENSOR_SERVICE_URL=http://go-sensor-lb:8080
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-iot_service}:${RABBITMQ_PASS:-iot_secret}@rabbitmq:5672/
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+      - CB_FAIL_MAX=5
+      - CB_RESET_TIMEOUT=30
+      - PIPELINE_MODE=${PIPELINE_MODE:-blocking}
+      - WORKER_COUNT=${WORKER_COUNT:-4}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      alert-db:
+        condition: service_healthy
+      go-sensor-lb:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: ${ALERT_REPLICAS:-1}
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+
+  go-alert-lb:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+      - "9091:9090"
+    volumes:
+      - ./nginx/alert.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - go-alert-service
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+
+volumes:
+  sensor-db-data:
+  alert-db-data:
