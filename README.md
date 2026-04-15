@@ -1,12 +1,12 @@
-# A4 – Reactive / Async Pipeline & Performance Analysis
+# A4 – Scaling, Hardening, and Operating Microservices
 
 ## Service Definition
 
-This assignment evolves the A2 multi-service architecture by adding reactive/async pipeline processing, performance analysis, and observability.
+This assignment evolves the system built over A1–A3 into a production-oriented architecture with horizontal scaling, failure resilience, security hardening, and operational observability.
 
 **Domain:** IoT Smart Home Sensors + Alert Rules
 **Services:** Sensor service (Python + Go) and Alert service (Python + Go)
-**Persistence:** SQLite (one database per service)
+**Persistence:** Postgres (Go services), SQLite (Python services, A3 baseline)
 **Messaging:** RabbitMQ (fanout exchange)
 **Resilience:** Circuit breaker + HTTP retry with exponential backoff
 **Authentication:** Bearer Token
@@ -138,10 +138,13 @@ sequenceDiagram
 ```
 A4/
 ├── README.md
-├── RUBRIC.md
-├── architecture.md
-├── docker-compose.yml               # All services + RabbitMQ
+├── architecture-review.md           # A4 architecture review document
+├── .env.example                     # Secrets template (copy to .env)
+├── docker-compose.yml               # All services + Postgres + Nginx LBs + RabbitMQ
 ├── openapi.yaml
+├── nginx/
+│   ├── sensor.conf                  # Nginx LB for Go sensor replicas
+│   └── alert.conf                   # Nginx LB for Go alert replicas
 ├── adrs/
 │   ├── ADR-001-sync-vs-async.md
 │   ├── ADR-002-rabbitmq-selection.md
@@ -149,29 +152,20 @@ A4/
 ├── data/
 │   ├── sensors.json
 │   └── alert_rules.json
-├── python-service/                  # Sensor service (Python/FastAPI) + RabbitMQ publisher
-├── go-service/                      # Sensor service (Go/Gin) + RabbitMQ publisher
-├── python-alert-service/            # Alert service (Python/FastAPI)
-└── go-alert-service/                # Alert service (Go/Gin)
-    ├── main.go
-    ├── Dockerfile
-    ├── go.mod
-    ├── clients/sensor_client.go     # HTTP client with circuit breaker
-    ├── config/config.go
-    ├── database/database.go
-    ├── handlers/
-    │   ├── health.go
-    │   ├── alert_rules.go
-    │   └── triggered_alerts.go
-    ├── messaging/consumer.go
-    ├── middleware/auth.go
-    ├── middleware/logging.go
-    ├── models/alert_rule.go
-    ├── models/triggered_alert.go
-    ├── repositories/alert_rule_repository.go
-    ├── repositories/triggered_alert_repository.go
-    ├── services/evaluator.go
-    └── tests/alerts_test.go
+├── scripts/
+│   ├── verify.sh                    # End-to-end smoke test
+│   ├── scaling_test.sh              # Horizontal scaling load test
+│   └── load_test.sh                 # A3 pipeline load test
+├── results/
+│   ├── scaling/                     # 1-replica vs 3-replica comparison
+│   ├── chaos/                       # Kill replica + stop DB experiments
+│   ├── security/                    # Network isolation, secrets, headers
+│   └── observability/               # Distributed trace + debugging story
+├── diagrams/
+├── python-service/                  # Sensor service (Python/FastAPI, SQLite, A3 baseline)
+├── go-service/                      # Sensor service (Go/Gin, Postgres, horizontally scaled)
+├── python-alert-service/            # Alert service (Python/FastAPI, SQLite, A3 baseline)
+└── go-alert-service/                # Alert service (Go/Gin, Postgres, horizontally scaled)
 ```
 
 ## API Endpoints
@@ -211,12 +205,18 @@ A4/
 ### Quick Start
 
 ```bash
-export API_TOKEN=my-secret-token
+cp .env.example .env   # Edit .env with your credentials
 cd A4
 docker compose up --build
 ```
 
-Services start in order: RabbitMQ → Sensor services → Alert services (enforced by `depends_on` health checks).
+Services start in order: Postgres + RabbitMQ → Sensor services → Nginx LBs → Alert services (enforced by `depends_on` health checks).
+
+To run with multiple Go replicas:
+
+```bash
+SENSOR_REPLICAS=3 ALERT_REPLICAS=3 docker compose up --build
+```
 
 ### Stop
 
@@ -226,25 +226,19 @@ docker compose down
 
 ## Running Tests
 
-### Go Alert Service
+### Go Tests
 
-```bash
-cd go-alert-service
-go test ./tests/ -v
-```
-
-Via Docker (no local Go required):
-
-```bash
-docker run --rm -v "$(pwd)/go-alert-service":/app -w /app \
-  golang:1.21-alpine sh -c \
-  "apk add --no-cache gcc musl-dev sqlite-dev && go test ./tests/ -v"
-```
-
-### Go Sensor Service
+Tests require a running Postgres instance. Set `TEST_DATABASE_DSN` or use the default (`postgres://iot_user:iot_secret@localhost:5432/sensors_test?sslmode=disable`).
 
 ```bash
 cd go-service && go test ./tests/ -v
+cd go-alert-service && go test ./tests/ -v
+```
+
+The evaluator unit test (pure logic, no DB) runs without Postgres:
+
+```bash
+cd go-alert-service && go test ./services/ -v
 ```
 
 ## Example Requests
@@ -447,10 +441,10 @@ The same trace ID is also received by the Go alert service (cross-stack fanout v
 |----------|---------|-------------|
 | `API_TOKEN` | *(required)* | Bearer token |
 | `PORT` | `8081` | Service port |
-| `DATABASE_PATH` | `/app/data/alerts-go.db` | SQLite path |
+| `DATABASE_DSN` | *(required)* | Postgres connection string |
 | `SEED_DATA_PATH` | `/app/data/alert_rules.json` | Seed data |
 | `SENSOR_SERVICE_URL` | `http://go-service:8080` | Sensor service URL |
-| `RABBITMQ_URL` | `amqp://iot_service:iot_secret@rabbitmq:5672/` | RabbitMQ URL |
+| `RABBITMQ_URL` | *(required)* | RabbitMQ URL |
 | `CB_FAIL_MAX` | `5` | Circuit breaker failure threshold |
 | `CB_RESET_TIMEOUT` | `30` | Circuit breaker reset timeout (seconds) |
 | `PIPELINE_MODE` | `blocking` | Pipeline mode: `blocking` or `async` |
