@@ -19,11 +19,11 @@ flowchart TB
             GoAlert["Go Alert\nGin · :8081"]
         end
 
-        subgraph Storage["Data Storage (per-service SQLite)"]
-            PDB[("sensors-python.db")]
-            GDB[("sensors-go.db")]
-            PAB[("alerts-python.db")]
-            GAB[("alerts-go.db")]
+        subgraph Storage["Data Storage"]
+            PDB[("sensors-python.db\nSQLite")]
+            GDB[("sensor-db\nPostgres")]
+            PAB[("alerts-python.db\nSQLite")]
+            GAB[("alert-db\nPostgres")]
         end
     end
 
@@ -95,7 +95,7 @@ flowchart TB
 | **SensorClient** | HTTP client with circuit breaker (gobreaker) + retry + 2s timeout |
 | **Auth Middleware** | Bearer token validation on all protected endpoints |
 | **Logging Middleware** | `X-Correlation-ID` propagation and structured request logging |
-| **SQLite (per-service)** | Each service owns its own database; no cross-service joins |
+| **Persistence** | Go services: Postgres (`sensor-db`, `alert-db`); Python services: SQLite (A3 baseline, unmodified). No cross-service joins. |
 
 ## Async Flow: Sensor Update → Alert
 

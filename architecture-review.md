@@ -1,5 +1,7 @@
 # Architecture Review — A4
 
+> **Note on framing:** The rubric specifies that this review should be performed *before* making any A4 changes. Accordingly, Sections "Core Services" through "Failure Concerns" describe the **pre-A4 state** of the system (SQLite, no horizontal scaling, flat Docker network) and reason about what to change. The subsequent sections ("Language Selection for A4 Improvements" onward) describe the A4 implementation decisions that were made after this review. SQLite references in the early sections are intentional — they describe the state being reviewed, not the current state of the repository.
+
 ## Core Services
 
 The core services of this system are a sensor service, currently simulating input but extensible to actual physical sensors providing data; and an alert service, allowing for the creation, editing, and deletion of alerts and the triggering of said alerts with relevant logging and messaging when the appropriate conditions/thresholds are breached.

@@ -33,10 +33,10 @@ flowchart TB
         end
 
         subgraph Storage["Data Storage"]
-            PDB[("sensors-python.db")]
-            GDB[("sensors-go.db")]
-            PAB[("alerts-python.db")]
-            GAB[("alerts-go.db")]
+            PDB[("sensors-python.db\nSQLite")]
+            GDB[("sensor-db\nPostgres")]
+            PAB[("alerts-python.db\nSQLite")]
+            GAB[("alert-db\nPostgres")]
         end
     end
 
@@ -71,7 +71,7 @@ sequenceDiagram
     participant GoSvc as Go Sensor Service
     participant RMQ as RabbitMQ
     participant GoAlert as Go Alert Service
-    participant AlertDB as alerts-go.db
+    participant AlertDB as alert-db (Postgres)
 
     Client->>+GoSvc: PUT /sensors/sensor-001\nAuthorization: Bearer token
     GoSvc->>GoSvc: Update sensor in DB

@@ -4,8 +4,9 @@ info:
   description: |
     RESTful API for managing IoT sensor devices in a smart home ecosystem.
 
-    This service provides CRUD operations for sensor management with SQLite
-    persistence and Bearer token authentication on sensor endpoints.
+    This service provides CRUD operations for sensor management. The Go
+    implementation uses Postgres; the Python implementation uses SQLite
+    (A3 baseline). All sensor endpoints require Bearer token authentication.
   version: 1.0.0
   contact:
     name: API Support
