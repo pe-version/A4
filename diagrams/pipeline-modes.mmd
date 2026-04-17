@@ -4,21 +4,21 @@ title: "Pipeline Modes: Blocking vs Reactive"
 flowchart LR
     subgraph Blocking["Blocking Mode"]
         direction TB
-        B_RMQ["RabbitMQ\n(prefetch=10)"] -->|deliver| B_Consumer["Consumer\n(single coroutine/goroutine)"]
+        B_RMQ["RabbitMQ prefetch=10"] -->|deliver| B_Consumer["Consumer single goroutine"]
         B_Consumer -->|evaluate inline| B_DB[("SQLite")]
         B_DB -->|complete| B_Ack["Ack message"]
         B_Ack -->|next message| B_RMQ
     end
 
-    subgraph Reactive["Reactive Mode (RxPY / RxGo)"]
+    subgraph Reactive["Reactive Mode — RxPY / RxGo"]
         direction TB
-        A_RMQ["RabbitMQ\n(prefetch=10)"] -->|deliver| A_Consumer["Consumer"]
-        A_Consumer -->|on_next(event)| A_Subject["Subject / Observable"]
+        A_RMQ["RabbitMQ prefetch=10"] -->|deliver| A_Consumer["Consumer"]
+        A_Consumer -->|on_next event| A_Subject["Subject / Observable"]
         A_Consumer -->|ack immediately| A_RMQ
-        A_Subject -->|"flat_map\n(max_concurrent=N)"| A_W1["Worker 1"]
-        A_Subject -->|"flat_map\n(max_concurrent=N)"| A_W2["Worker 2"]
-        A_Subject -->|"flat_map\n(max_concurrent=N)"| A_WN["Worker N"]
-        A_W1 -->|write| A_DB[("SQLite\n(serialized writes)")]
+        A_Subject -->|"flat_map max_concurrent=N"| A_W1["Worker 1"]
+        A_Subject -->|"flat_map max_concurrent=N"| A_W2["Worker 2"]
+        A_Subject -->|"flat_map max_concurrent=N"| A_WN["Worker N"]
+        A_W1 -->|write| A_DB[("SQLite serialized")]
         A_W2 -->|write| A_DB
         A_WN -->|write| A_DB
     end

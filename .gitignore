@@ -23,6 +23,7 @@ RUBRIC.md
 RUBRIC-A4.md
 appeal-draft.md
 TODO.md
+.puppeteer.json
 
 # Database files
 *.db
