@@ -1,0 +1,83 @@
+# Chaos Test 3: Disconnect the Queue (RabbitMQ)
+# Date: 2026-04-17
+
+=== 1. BASELINE: Trigger a sensor update, confirm alert pipeline works ===
+{"id":"sensor-001","name":"Living Room Thermostat","type":"temperature","location":"living_room","value":85,"unit":"fahrenheit","status":"active","last_reading":"2026-04-17T15:59:17Z","created_at":"2026-04-13T04:38:36Z","updated_at":"2026-04-17T15:59:17Z"}
+HTTP 200
+
+--- Alert metrics before outage ---
+# HELP events_received_total Total sensor.updated events consumed from RabbitMQ.
+# TYPE events_received_total counter
+events_received_total 2
+# HELP events_processed_total Total events that completed evaluation.
+# TYPE events_processed_total counter
+events_processed_total 2
+# HELP alerts_triggered_total Total alerts triggered by threshold crossings.
+# TYPE alerts_triggered_total counter
+alerts_triggered_total 3
+
+=== 2. FAILURE INJECTED: Stop RabbitMQ ===
+a4-rabbitmq-1
+
+=== 3. DURING OUTAGE: Sensor update ===
+HTTP write still succeeds (Postgres is independent); publish fails.
+{"id":"sensor-001","name":"Living Room Thermostat","type":"temperature","location":"living_room","value":99,"unit":"fahrenheit","status":"active","last_reading":"2026-04-17T15:59:23Z","created_at":"2026-04-13T04:38:36Z","updated_at":"2026-04-17T15:59:23Z"}
+HTTP 200
+
+=== 4. SENSOR SERVICE LOGS during outage ===
+go-service-1  | 2026/04/17 15:59:17 INFO Sensor updated, publishing event sensor_id=sensor-001 trace_id=abdd58db-d165-4321-93c6-4aaf60066e36
+go-service-1  | 2026/04/17 15:59:17 INFO Request completed correlation_id=CHAOS-RMQ-BASELINE method=PUT path=/sensors/sensor-001 status=200 duration_ms=140
+go-service-1  | 2026/04/17 15:59:17 INFO Published sensor.updated event sensor_id=sensor-001 value=85 trace_id=abdd58db-d165-4321-93c6-4aaf60066e36
+go-service-1  | 2026/04/17 15:59:23 INFO Sensor updated, publishing event sensor_id=sensor-001 trace_id=1f8b8696-90c1-4dd0-a803-f23c79c8d7af
+go-service-1  | 2026/04/17 15:59:23 INFO Request completed correlation_id=CHAOS-RMQ-DURING method=PUT path=/sensors/sensor-001 status=200 duration_ms=2
+go-service-1  | 2026/04/17 15:59:23 WARN Failed to publish sensor event, attempting reconnect error="Exception (504) Reason: \"channel/connection is not open\""
+go-service-1  | 2026/04/17 15:59:23 WARN RabbitMQ reconnect failed — event dropped sensor_id=sensor-001 error="dial tcp: lookup rabbitmq on 127.0.0.11:53: no such host"
+
+=== 5. ALERT SERVICE LOGS during outage ===
+go-alert-service-1  | 2026/04/17 15:59:17 INFO Received sensor.updated event sensor_id=sensor-001 value=85 trace_id=abdd58db-d165-4321-93c6-4aaf60066e36
+go-alert-service-1  | 2026/04/17 15:59:17 INFO Alert triggered alert_id=alert-006 rule_id=rule-001 trace_id=abdd58db-d165-4321-93c6-4aaf60066e36 message="Sensor sensor-001 value 85.00 gt threshold 80.00 (rule: Living Room Temperature High)"
+go-alert-service-1  | 2026/04/17 15:59:19 ERROR Consumer connection lost — reconnecting in 5s error="dial tcp 172.26.0.2:5672: connect: connection refused"
+go-alert-service-1  | 2026/04/17 15:59:24 ERROR Consumer connection lost — reconnecting in 5s error="dial tcp: lookup rabbitmq on 127.0.0.11:53: no such host"
+
+=== 6. METRICS during outage ===
+# HELP events_received_total Total sensor.updated events consumed from RabbitMQ.
+# TYPE events_received_total counter
+events_received_total 2
+# HELP events_processed_total Total events that completed evaluation.
+# TYPE events_processed_total counter
+events_processed_total 2
+# HELP alerts_triggered_total Total alerts triggered by threshold crossings.
+# TYPE alerts_triggered_total counter
+alerts_triggered_total 3
+(No increase expected — no events reached the consumer.)
+
+=== 7. RECOVERY: Restart RabbitMQ ===
+a4-rabbitmq-1
+
+
+=== 8. POST-RECOVERY: Trigger another sensor update ===
+{"id":"sensor-001","name":"Living Room Thermostat","type":"temperature","location":"living_room","value":88,"unit":"fahrenheit","status":"active","last_reading":"2026-04-17T16:00:13Z","created_at":"2026-04-13T04:38:36Z","updated_at":"2026-04-17T16:00:13Z"}
+HTTP 200
+
+=== 9. RECONNECTION EVIDENCE: service logs after RabbitMQ returned ===
+go-service-1  | 2026/04/17 16:00:13 INFO Sensor updated, publishing event sensor_id=sensor-001 trace_id=8da05634-d52d-487e-bf24-0867224dee71
+go-service-1  | 2026/04/17 16:00:13 WARN Failed to publish sensor event, attempting reconnect error="Exception (504) Reason: \"channel/connection is not open\""
+go-service-1  | 2026/04/17 16:00:13 INFO Connected to RabbitMQ for publishing
+go-service-1  | 2026/04/17 16:00:13 INFO Published sensor.updated event sensor_id=sensor-001 value=88 trace_id=8da05634-d52d-487e-bf24-0867224dee71
+
+go-alert-service-1  | 2026/04/17 15:59:34 ERROR Consumer connection lost — reconnecting in 5s error="dial tcp 172.26.0.2:5672: connect: connection refused"
+go-alert-service-1  | 2026/04/17 15:59:39 ERROR Consumer connection lost — reconnecting in 5s error="dial tcp 172.26.0.2:5672: connect: connection refused"
+go-alert-service-1  | 2026/04/17 15:59:44 INFO Connected to RabbitMQ, waiting for sensor events
+go-alert-service-1  | 2026/04/17 16:00:13 INFO Received sensor.updated event sensor_id=sensor-001 value=88 trace_id=8da05634-d52d-487e-bf24-0867224dee71
+
+=== 10. METRICS after recovery ===
+# HELP events_received_total Total sensor.updated events consumed from RabbitMQ.
+# TYPE events_received_total counter
+events_received_total 3
+# HELP events_processed_total Total events that completed evaluation.
+# TYPE events_processed_total counter
+events_processed_total 3
+# HELP alerts_triggered_total Total alerts triggered by threshold crossings.
+# TYPE alerts_triggered_total counter
+alerts_triggered_total 4
+(Counter should have incremented by 1 for the recovery event, but NOT for the event lost during outage.)

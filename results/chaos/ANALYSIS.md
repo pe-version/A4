@@ -91,3 +91,65 @@ The most actionable improvement is sanitizing error responses to prevent interna
 ```
 
 with HTTP 503 status, regardless of the specific internal failure. This is both a security improvement (information disclosure) and a correctness improvement (proper HTTP semantics for transient failures).
+
+---
+
+## Scenario 3: Disconnect the Queue (RabbitMQ)
+
+### Prediction
+
+Stopping RabbitMQ should cause the sensor service's event publisher to fail when it tries to emit the next `sensor.updated` event. The HTTP write itself will still succeed because Postgres is independent of the message broker. The alert service consumer, blocked on a closed channel, should detect the connection loss and enter its retry/backoff loop. When RabbitMQ comes back online, the consumer should auto-reconnect without a service restart and the pipeline should resume. Events published during the outage will be lost — the publisher uses fire-and-forget semantics with no persistent outbox.
+
+### Execution
+
+```bash
+docker stop a4-rabbitmq-1
+# trigger a sensor update (expected: HTTP 200, but no event published)
+# restart RabbitMQ
+docker start a4-rabbitmq-1
+# trigger another sensor update (expected: event published and received)
+```
+
+### What Actually Happened
+
+**Before the outage:** A sensor update to `85.0` (crossing the `gt 80.0` threshold) produced the expected behavior — event published with trace ID `abdd58db`, received by the alert service, alert triggered.
+
+**During the outage:**
+- The HTTP write succeeded (HTTP 200) because Postgres was unaffected
+- The publisher logged: `WARN Failed to publish sensor event, attempting reconnect error="Exception (504) Reason: channel/connection is not open"`
+- The publisher's reconnect attempt also failed: `WARN RabbitMQ reconnect failed — event dropped sensor_id=sensor-001 error="dial tcp: lookup rabbitmq on 127.0.0.11:53: no such host"` — confirming the event for value `99.0` was lost
+- The alert service consumer logged the connection loss twice during the outage: `ERROR Consumer connection lost — reconnecting in 5s` (first immediately, then 5s later, continuing on backoff)
+
+**Recovery (autonomous):**
+- When RabbitMQ came back, the alert consumer's backoff loop succeeded on its next attempt: `INFO Connected to RabbitMQ, waiting for sensor events`
+- The next sensor update (value `88.0`, trace ID `8da05634`) was published and received normally — no service restart required
+
+**Metrics evidence of the lost event:**
+
+| Stage | events_received_total | alerts_triggered_total |
+|-------|----------------------|----------------------|
+| Before outage | 2 | 3 |
+| During outage (after 99.0 update) | 2 | 3 |
+| After recovery (after 88.0 update) | 3 | 4 |
+
+The counters incremented by exactly one between "before outage" and "after recovery," despite two sensor updates being issued during that window. The update at `99.0` produced no event — the Prometheus counter confirms the data loss quantitatively.
+
+### Key Findings
+
+| Phase | Sensor write | Event published | Consumer status |
+|-------|-------------|-----------------|-----------------|
+| Before | HTTP 200 | ✓ delivered | connected |
+| During | HTTP 200 | ✗ dropped | reconnecting every 5s |
+| After | HTTP 200 | ✓ delivered | connected |
+
+### Why This Matters
+
+The system **self-healed** from a broker outage without any human intervention. The sensor service's publisher and the alert service's consumer both have reconnect logic (carried forward from A3) that works transparently across Docker Compose restarts of RabbitMQ. Operationally, this is exactly what you want for a transient broker failure.
+
+### What the Test Exposed
+
+1. **Silent data loss.** Events published during the outage are lost with only a WARN log. A production system would need a persistent outbox pattern — write the event to a local queue/table as part of the same transaction as the Postgres write, then a separate worker drains that outbox to RabbitMQ with retries. This provides at-least-once delivery across broker failures.
+2. **No backpressure on the HTTP write.** The sensor PUT returned HTTP 200 even though the downstream pipeline failed. A caller has no way to know the alert pipeline didn't observe this update. An idempotency key and an explicit "event accepted" vs "event delivered" distinction would clarify this in production.
+3. **Reconnect logging frequency.** The consumer logs every 5-second retry attempt. During a long outage this could flood logs. Exponential backoff with capped retry interval (e.g., 5s → 30s → 5min → 5min) would reduce noise.
+
+The core point for this assignment: **the recovery did not require code changes or operator intervention.** The existing reconnect logic (A3-era) combined with Docker Compose's orchestration was sufficient to restore full functionality.
