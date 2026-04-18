@@ -450,6 +450,12 @@ The same trace ID is also received by the Go alert service (cross-stack fanout v
 | `PIPELINE_MODE` | `blocking` | Pipeline mode: `blocking` or `async` |
 | `WORKER_COUNT` | `4` | Worker pool size (used in async mode) |
 
+> **Section preserved for A3 reference.** The analysis below documents
+> the A3 blocking-vs-reactive pipeline experiment on SQLite. It is kept
+> for historical context; the A4 work (scaling, failure testing,
+> security, observability) is documented in the sections above and in
+> `results/{scaling,chaos,security,observability}/`.
+
 ## A3: Performance Analysis
 
 ### Pipeline Modes

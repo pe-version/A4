@@ -1,4 +1,12 @@
-# Architecture Diagram
+# Architecture Diagram (Standalone Reference)
+
+> This document was written pre-A4 as a standalone architecture reference.
+> The same diagram is embedded inline in the main [README.md](README.md).
+>
+> For the A4 architecture review (rubric deliverable), see
+> [architecture-review.md](architecture-review.md).
+>
+> This file is preserved for historical completeness.
 
 ## Mermaid Diagram (render at mermaid.live or in GitHub)
 
