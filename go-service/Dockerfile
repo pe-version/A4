@@ -14,8 +14,8 @@ COPY . .
 # Build the application (pure Go — no CGO needed for Postgres)
 RUN CGO_ENABLED=0 GOOS=linux go build -o sensor-service .
 
-# Minimal final image
-FROM alpine:latest
+# Minimal final image (pinned for reproducibility — OWASP A06)
+FROM alpine:3.20
 
 WORKDIR /app
 

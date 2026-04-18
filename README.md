@@ -323,6 +323,18 @@ When the sensor service is unavailable, rule creation still succeeds with a warn
 | Publisher Resilience | Sensor → RabbitMQ | Publish failures logged/swallowed; auto-reconnect |
 | Consumer Reconnect | Alert ← RabbitMQ | Auto-reconnects with 5-second backoff |
 
+## Security Hardening (A4)
+
+See [results/security/ANALYSIS.md](results/security/ANALYSIS.md) for full details. Summary of hardening applied beyond the A3 baseline:
+
+| # | Improvement | Principle | Evidence |
+|---|-------------|-----------|----------|
+| 1 | Network isolation (six Docker networks, least-privilege) | OWASP A01 | `docker-compose.yml` + verification |
+| 2 | Secrets management (`.env` gitignored; `DATABASE_DSN`/`RABBITMQ_URL`/`API_TOKEN` required; no hardcoded defaults in code) | OWASP A02 / A05 | `.env.example`, `go-*/config/config.go` |
+| 3 | Secure headers + hidden server version at Nginx (CSP, X-Frame-Options, X-Content-Type-Options, X-XSS-Protection, Referrer-Policy; `server_tokens off`) | OWASP A05 | `nginx/sensor.conf`, `nginx/alert.conf` |
+| 4 | Constant-time Bearer token comparison (SHA-256 + `subtle.ConstantTimeCompare`) to defeat timing-based token recovery | OWASP A07 | `go-*/middleware/auth.go` |
+| 5 | Pinned base image (`alpine:3.20`) for reproducible builds and explicit supply-chain decisions | OWASP A06 | `go-*/Dockerfile` |
+
 ## Observability Evidence
 
 All evidence captured from live Docker services (2026-04-01). Sensor `sensor-007` (temperature, 95.5°F) triggers rule `High Temp Alert` (threshold > 80°F).

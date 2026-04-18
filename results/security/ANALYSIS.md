@@ -93,3 +93,84 @@ Content-Security-Policy: default-src 'none'; frame-ancestors 'none'
 ### Why This Matters
 
 These headers are defense-in-depth measures applied at the reverse proxy layer. They protect against common web attack vectors (XSS, clickjacking, MIME confusion) without any application code changes. The CSP is strict (`default-src 'none'`) because this is a JSON API with no browser-rendered content — there is no legitimate reason for a browser to load scripts, images, or styles from these endpoints. Hiding the server version removes a free fingerprinting signal for attackers.
+
+---
+
+## Additional Hardening (post-review)
+
+After an internal review of the A4-specific code against OWASP Top 10 and SWEBoK construction principles, two additional issues were identified and fixed.
+
+### 4. Constant-Time Token Comparison (OWASP A07 — Auth Failures)
+
+#### Before
+
+Both `go-service/middleware/auth.go` and `go-alert-service/middleware/auth.go` compared the incoming Bearer token against the configured `API_TOKEN` using Go's `!=` operator:
+
+```go
+if token != validToken {
+    // 401 Unauthorized
+}
+```
+
+Go's string comparison short-circuits on the first mismatching byte. An attacker with access to response timing can recover the valid token byte-by-byte: each correctly-guessed prefix byte causes the comparison to run slightly longer before rejection. Under enough samples and low-noise network conditions, this reduces token recovery from a brute-force search of `O(256^n)` to `O(256·n)`.
+
+#### After
+
+Both middlewares now compute SHA-256 hashes of the valid token (once, at startup) and the incoming token (per request), then compare the 32-byte hashes with `crypto/subtle.ConstantTimeCompare`:
+
+```go
+validHash := sha256.Sum256([]byte(validToken))  // precomputed at startup
+// ... per request ...
+incomingHash := sha256.Sum256([]byte(parts[1]))
+if subtle.ConstantTimeCompare(incomingHash[:], validHash[:]) != 1 {
+    // 401 Unauthorized
+}
+```
+
+The hash step is important: `ConstantTimeCompare` is only constant-time when inputs are the same length. If the code compared the raw tokens directly, a short wrong token would return faster than a long wrong token — the length comparison itself leaks information. Hashing first normalizes both sides to 32 bytes.
+
+#### Why This Matters
+
+Timing attacks on token comparison are a real, documented attack class (see OWASP's guidance on secret comparison). The per-request cost is a single SHA-256 hash — sub-microsecond — which is negligible compared to the database query that follows. The fix is small, has no behavioral impact on legitimate requests, and closes a category of attack that would otherwise be invisible in telemetry.
+
+### 5. Pinned Base Image (OWASP A06 — Vulnerable and Outdated Components)
+
+#### Before
+
+Both Dockerfiles used an unpinned base image for the final stage:
+
+```dockerfile
+FROM alpine:latest
+```
+
+`:latest` is a mutable tag. A Docker build at time T and the same build at time T+1 can produce different images, with different installed packages, different CVE exposure, and potentially different runtime behavior. This is a reproducibility failure (SWEBoK configuration management) and a supply-chain risk (OWASP A06): a compromised or silently-updated base image propagates to every build without notice.
+
+#### After
+
+Both Dockerfiles now pin to an explicit Alpine release:
+
+```dockerfile
+# Minimal final image (pinned for reproducibility — OWASP A06)
+FROM alpine:3.20
+```
+
+`alpine:3.20` is a specific release with a known package inventory. Upgrading is now an explicit decision — bump the tag, rebuild, run tests — rather than an implicit drift every time someone pulls.
+
+#### Why This Matters
+
+Pinned dependencies are a foundational software engineering practice (SWEBoK configuration management, supply chain security). Without pinning, every collaborator builds a subtly different image, and bugs or security changes introduced upstream appear in builds with no changelog entry. For a graded assignment this is mostly a reproducibility concern; for a production system, it's how supply-chain incidents like `xz-utils` propagate silently.
+
+### Verification
+
+Both services rebuilt and deployed with no functional regressions:
+
+```
+All 16 checks passed  (scripts/verify.sh)
+```
+
+The smoke test validates that:
+- Valid Bearer tokens are accepted (200/201 responses)
+- Invalid or missing tokens are rejected (401)
+- The async pipeline (sensor update → RabbitMQ → alert) completes end-to-end
+
+No change to external API contract; no change to test expectations; no change to performance at the scale measured (sub-microsecond SHA-256 vs. millisecond-scale DB queries).
