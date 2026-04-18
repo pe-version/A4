@@ -322,6 +322,7 @@ When the sensor service is unavailable, rule creation still succeeds with a warn
 | Graceful Fallback | Rule creation | Creates rule with warning if sensor service unavailable |
 | Publisher Resilience | Sensor → RabbitMQ | Publish failures logged/swallowed; auto-reconnect |
 | Consumer Reconnect | Alert ← RabbitMQ | Auto-reconnects with 5-second backoff |
+| Race-Free ID Generation | All Postgres repositories | `SEQUENCE` + `nextval()` eliminates the concurrent `MAX+1` race; write failures under 50-concurrent load dropped from 94.5% to 0.7% ([evidence](results/scaling/ANALYSIS.md)) |
 
 ## Security Hardening (A4)
 
