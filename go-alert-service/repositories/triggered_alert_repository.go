@@ -72,39 +72,23 @@ func (r *PostgresTriggeredAlertRepository) GetByID(id string) (*models.Triggered
 	return &alert, nil
 }
 
-// Create inserts a new triggered alert into the database.
-// Uses a transaction to ensure atomic ID generation and insertion.
+// Create inserts a new triggered alert into the database. ID generation uses
+// a Postgres SEQUENCE (alert_id_seq), which is atomic and race-free under
+// concurrent writes — no explicit transaction needed.
 func (r *PostgresTriggeredAlertRepository) Create(ruleID, sensorID string, sensorValue, threshold float64, message string) (*models.TriggeredAlert, error) {
-	tx, err := r.db.Begin()
-	if err != nil {
+	var nextNum int64
+	if err := r.db.QueryRow("SELECT nextval('alert_id_seq')").Scan(&nextNum); err != nil {
 		return nil, err
-	}
-	defer tx.Rollback()
-
-	var maxNum sql.NullInt64
-	err = tx.QueryRow("SELECT MAX(CAST(SUBSTR(id, 7) AS INTEGER)) FROM triggered_alerts WHERE id LIKE 'alert-%'").Scan(&maxNum)
-	if err != nil {
-		return nil, err
-	}
-
-	nextNum := int64(1)
-	if maxNum.Valid {
-		nextNum = maxNum.Int64 + 1
 	}
 	newID := fmt.Sprintf("alert-%03d", nextNum)
 
 	now := models.Now()
 
-	_, err = tx.Exec(`
+	_, err := r.db.Exec(`
 		INSERT INTO triggered_alerts (id, rule_id, sensor_id, sensor_value, threshold, message, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, newID, ruleID, sensorID, sensorValue, threshold, message, "open", now)
-
 	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 

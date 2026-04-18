@@ -103,44 +103,27 @@ func (r *PostgresAlertRuleRepository) GetActiveRulesForSensor(sensorID string) (
 	return rules, rows.Err()
 }
 
-// Create inserts a new alert rule into the database.
-// Uses a transaction to ensure atomic ID generation and insertion,
-// preventing duplicate IDs under concurrent access.
+// Create inserts a new alert rule into the database. ID generation uses a
+// Postgres SEQUENCE (rule_id_seq), which is atomic and race-free under
+// concurrent writes — no explicit transaction needed.
 func (r *PostgresAlertRuleRepository) Create(rule *models.AlertRuleCreate) (*models.AlertRule, error) {
 	if err := rule.Validate(); err != nil {
 		return nil, err
 	}
 
-	tx, err := r.db.Begin()
-	if err != nil {
+	var nextNum int64
+	if err := r.db.QueryRow("SELECT nextval('rule_id_seq')").Scan(&nextNum); err != nil {
 		return nil, err
-	}
-	defer tx.Rollback()
-
-	var maxNum sql.NullInt64
-	err = tx.QueryRow("SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER)) FROM alert_rules WHERE id LIKE 'rule-%'").Scan(&maxNum)
-	if err != nil {
-		return nil, err
-	}
-
-	nextNum := int64(1)
-	if maxNum.Valid {
-		nextNum = maxNum.Int64 + 1
 	}
 	newID := fmt.Sprintf("rule-%03d", nextNum)
 
 	now := models.Now()
 
-	_, err = tx.Exec(`
+	_, err := r.db.Exec(`
 		INSERT INTO alert_rules (id, sensor_id, metric, operator, threshold, name, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, newID, rule.SensorID, rule.Metric, rule.Operator, rule.Threshold, rule.Name, rule.Status, now, now)
-
 	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 

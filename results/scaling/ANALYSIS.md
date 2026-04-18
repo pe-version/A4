@@ -37,12 +37,12 @@ The Go services are **stateless at the HTTP layer** — all state lives in a sha
 
 ### POST /sensors (write throughput)
 
-| Metric | 1 Replica | 3 Replicas | Change |
-|--------|-----------|------------|--------|
-| Requests/sec | 54.60 | 77.34 | **+42%** |
-| Mean latency | 916 ms | 647 ms | **-29%** |
-| p50 latency | 808 ms | 600 ms | **-26%** |
-| Failure rate | 95.3% | 94.5% | Similar |
+| Metric | 1 Replica | 3 Replicas (original) | 3 Replicas (post-fix) |
+|--------|-----------|-----------------------|-----------------------|
+| Requests/sec | 54.60 | 77.34 | 76.06 |
+| Mean latency | 916 ms | 647 ms | 657 ms |
+| p50 latency | 808 ms | 600 ms | 601 ms |
+| Failure rate | **95.3%** | **94.5%** | **0.7%** ✓ |
 
 ## Analysis
 
@@ -52,7 +52,29 @@ Scaling from 1 to 3 replicas improved read throughput by 30–61% and reduced la
 
 ### Write Performance
 
-Write throughput improved by 42%, but the high failure rate (94–95%) persisted across both configurations. The failures are `400 Bad Request` responses caused by the sequential ID generation strategy: concurrent transactions race to compute `MAX(id) + 1`, and losers violate the primary key constraint. This is a **known limitation of the ID generation pattern**, not a scaling defect. It would be resolved by switching to UUIDs or Postgres sequences (`SERIAL` / `GENERATED ALWAYS AS IDENTITY`), which eliminate the read-modify-write race entirely. This is noted as a future improvement.
+The original scaling test exposed a 94–95% write failure rate across both 1-replica and 3-replica configurations. Investigation traced the failures to the ID generation strategy in the repositories: each `Create` ran `SELECT MAX(CAST(SUBSTR(id, 8) AS INTEGER)) FROM sensors` inside a transaction, computed `MAX + 1`, then inserted the new row. Under concurrent load, two (or more) transactions would both see the same MAX, compute the same next ID, and one would win the primary key race — every other concurrent write got a duplicate-key violation.
+
+**Fix implemented:** Replaced the read-modify-write pattern with a Postgres `SEQUENCE`:
+
+```sql
+CREATE SEQUENCE IF NOT EXISTS sensor_id_seq;
+-- at startup, after seed:
+SELECT setval('sensor_id_seq',
+    COALESCE((SELECT MAX(CAST(SUBSTR(id, 8) AS INTEGER))
+              FROM sensors WHERE id LIKE 'sensor-%'), 0));
+```
+
+```go
+// In Create():
+var nextNum int64
+r.db.QueryRow("SELECT nextval('sensor_id_seq')").Scan(&nextNum)
+```
+
+`nextval()` is atomic and lock-free; concurrent callers get unique values with no race. The `setval` at startup handles the seed-collision case: after seeding `sensor-001` through `sensor-006` from JSON, the sequence is advanced past 6 so the first `nextval()` returns 7. The same pattern is applied to `rule_id_seq` and `alert_id_seq` in the alert service.
+
+**Verified result:** Write failure rate under the same 1,000-request / 50-concurrent load test dropped from **94.5% to 0.7%**. Throughput and latency were effectively unchanged (the writes that previously failed fast now complete, but the bottleneck remains shared Postgres I/O — the *ceiling* hasn't moved, only the correctness has).
+
+This is a good illustration of a principle the scaling analysis revealed: a "scaling" bottleneck often turns out to be a correctness bug under concurrency, not a resource bottleneck. The original test at 3 replicas was reporting 77 req/s at 94.5% failure — i.e., only ~4 successful writes/sec. The post-fix test reports 76 req/s at 0.7% failure — ~75 successful writes/sec, an **18x real improvement** in successful write throughput that was entirely masked by the race condition.
 
 ### Why Not 3x Improvement?
 

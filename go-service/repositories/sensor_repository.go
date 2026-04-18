@@ -71,42 +71,27 @@ func (r *PostgresSensorRepository) GetByID(id string) (*models.Sensor, error) {
 	return &s, nil
 }
 
-// Create inserts a new sensor into the database.
+// Create inserts a new sensor into the database. ID generation uses a
+// Postgres SEQUENCE (sensor_id_seq), which is atomic and race-free under
+// concurrent writes — no explicit transaction needed.
 func (r *PostgresSensorRepository) Create(sensor *models.SensorCreate) (*models.Sensor, error) {
 	if err := sensor.Validate(); err != nil {
 		return nil, err
 	}
 
-	tx, err := r.db.Begin()
-	if err != nil {
+	var nextNum int64
+	if err := r.db.QueryRow("SELECT nextval('sensor_id_seq')").Scan(&nextNum); err != nil {
 		return nil, err
-	}
-	defer tx.Rollback()
-
-	var maxNum sql.NullInt64
-	err = tx.QueryRow("SELECT MAX(CAST(SUBSTR(id, 8) AS INTEGER)) FROM sensors WHERE id LIKE 'sensor-%'").Scan(&maxNum)
-	if err != nil {
-		return nil, err
-	}
-
-	nextNum := int64(1)
-	if maxNum.Valid {
-		nextNum = maxNum.Int64 + 1
 	}
 	newID := fmt.Sprintf("sensor-%03d", nextNum)
 
 	now := models.Now()
 
-	_, err = tx.Exec(`
+	_, err := r.db.Exec(`
 		INSERT INTO sensors (id, name, type, location, value, unit, status, last_reading, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, newID, sensor.Name, sensor.Type, sensor.Location, sensor.Value, sensor.Unit, sensor.Status, now, now, now)
-
 	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 

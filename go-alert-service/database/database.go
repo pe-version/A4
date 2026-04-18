@@ -41,6 +41,11 @@ CREATE INDEX IF NOT EXISTS idx_alert_rules_sensor_id ON alert_rules(sensor_id);
 CREATE INDEX IF NOT EXISTS idx_alert_rules_status ON alert_rules(status);
 CREATE INDEX IF NOT EXISTS idx_triggered_alerts_rule_id ON triggered_alerts(rule_id);
 CREATE INDEX IF NOT EXISTS idx_triggered_alerts_status ON triggered_alerts(status);
+
+-- Sequences for atomic, race-free ID generation.
+-- Reset to MAX(existing) at startup by Repository.ResetIDSequence.
+CREATE SEQUENCE IF NOT EXISTS rule_id_seq;
+CREATE SEQUENCE IF NOT EXISTS alert_id_seq;
 `
 
 // AlertRuleJSON represents an alert rule from the JSON seed file.
@@ -74,8 +79,17 @@ func InitSchema(db *sql.DB) error {
 	return err
 }
 
-// SeedFromJSON seeds the database from a JSON file if the table is empty.
+// SeedFromJSON seeds the database from a JSON file if the table is empty,
+// then advances the ID sequences past any existing rows so the next generated
+// IDs cannot collide with seeded or previously-existing records.
 func SeedFromJSON(db *sql.DB, jsonPath string) error {
+	// Always reset sequences at the end, regardless of whether we seed.
+	defer func() {
+		if err := resetIDSequences(db); err != nil {
+			slog.Warn("Failed to reset ID sequences", "error", err)
+		}
+	}()
+
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM alert_rules").Scan(&count)
 	if err != nil {
@@ -130,5 +144,31 @@ func SeedFromJSON(db *sql.DB, jsonPath string) error {
 	}
 
 	slog.Info("Seeded database from JSON", "count", len(rules))
+	return nil
+}
+
+// resetIDSequences advances rule_id_seq and alert_id_seq past the highest
+// numeric suffix in their respective tables. Called after seeding (or no-op
+// seeding) to prevent collisions between sequence-generated IDs and existing
+// ones. Idempotent; safe to call on every startup.
+func resetIDSequences(db *sql.DB) error {
+	if _, err := db.Exec(`
+		SELECT setval('rule_id_seq',
+			COALESCE(
+				(SELECT MAX(CAST(SUBSTR(id, 6) AS INTEGER))
+				 FROM alert_rules WHERE id LIKE 'rule-%'),
+				0))
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		SELECT setval('alert_id_seq',
+			COALESCE(
+				(SELECT MAX(CAST(SUBSTR(id, 7) AS INTEGER))
+				 FROM triggered_alerts WHERE id LIKE 'alert-%'),
+				0))
+	`); err != nil {
+		return err
+	}
 	return nil
 }

@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS sensors (
 CREATE INDEX IF NOT EXISTS idx_sensors_type ON sensors(type);
 CREATE INDEX IF NOT EXISTS idx_sensors_location ON sensors(location);
 CREATE INDEX IF NOT EXISTS idx_sensors_status ON sensors(status);
+
+-- Sequence for atomic, race-free ID generation.
+-- Reset to MAX(existing) at startup by Repository.ResetIDSequence.
+CREATE SEQUENCE IF NOT EXISTS sensor_id_seq;
 `
 
 // SensorJSON represents a sensor from the JSON seed file.
@@ -62,8 +66,17 @@ func InitSchema(db *sql.DB) error {
 	return err
 }
 
-// SeedFromJSON seeds the database from a JSON file if the table is empty.
+// SeedFromJSON seeds the database from a JSON file if the table is empty,
+// then advances the ID sequence past any existing rows so the next generated
+// ID cannot collide with a seeded or previously-existing record.
 func SeedFromJSON(db *sql.DB, jsonPath string) error {
+	// Always reset the sequence at the end, regardless of whether we seed.
+	defer func() {
+		if err := resetSensorIDSequence(db); err != nil {
+			slog.Warn("Failed to reset sensor_id_seq", "error", err)
+		}
+	}()
+
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM sensors").Scan(&count)
 	if err != nil {
@@ -134,4 +147,19 @@ func SeedFromJSON(db *sql.DB, jsonPath string) error {
 
 	slog.Info("Seeded database from JSON", "count", len(sensors))
 	return nil
+}
+
+// resetSensorIDSequence advances sensor_id_seq past the highest numeric
+// suffix in the sensors table. Called after seeding (or no-op seeding) to
+// prevent collisions between sequence-generated IDs and seeded IDs.
+// Idempotent; safe to call on every startup.
+func resetSensorIDSequence(db *sql.DB) error {
+	_, err := db.Exec(`
+		SELECT setval('sensor_id_seq',
+			COALESCE(
+				(SELECT MAX(CAST(SUBSTR(id, 8) AS INTEGER))
+				 FROM sensors WHERE id LIKE 'sensor-%'),
+				0))
+	`)
+	return err
 }
