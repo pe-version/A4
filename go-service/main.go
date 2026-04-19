@@ -29,13 +29,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Connect to database
+	// Connect to database. NOTE: no defer db.Close() — every error path
+	// below calls os.Exit(1) (which skips defers), and on SIGTERM the
+	// process dies without running defers. Proper connection cleanup will
+	// arrive with the graceful-shutdown work tracked in TODO.md; adding a
+	// defer now would be decorative rather than functional.
 	db, err := database.Connect(cfg.DatabaseDSN)
 	if err != nil {
 		slog.Error("Failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
 
 	// Initialize database schema
 	if err := database.InitSchema(db); err != nil {
