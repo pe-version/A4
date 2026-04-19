@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-const CorrelationIDKey = "correlation_id"
 const CorrelationIDHeader = "X-Correlation-ID"
 
 // LoggingMiddleware adds correlation IDs and logs requests with structured logging.
@@ -18,8 +17,6 @@ func LoggingMiddleware() gin.HandlerFunc {
 		if correlationID == "" {
 			correlationID = uuid.New().String()
 		}
-
-		c.Set(CorrelationIDKey, correlationID)
 
 		start := time.Now()
 		c.Next()
@@ -34,12 +31,4 @@ func LoggingMiddleware() gin.HandlerFunc {
 
 		c.Header(CorrelationIDHeader, correlationID)
 	}
-}
-
-// GetCorrelationID retrieves the correlation ID from the Gin context.
-func GetCorrelationID(c *gin.Context) string {
-	if id, exists := c.Get(CorrelationIDKey); exists {
-		return id.(string)
-	}
-	return ""
 }
