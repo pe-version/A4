@@ -148,7 +148,8 @@ A4/
 ├── adrs/
 │   ├── ADR-001-sync-vs-async.md
 │   ├── ADR-002-rabbitmq-selection.md
-│   └── ADR-003-circuit-breaker.md
+│   ├── ADR-003-circuit-breaker.md
+│   └── ADR-004-graceful-shutdown-deferred.md
 ├── data/
 │   ├── sensors.json
 │   └── alert_rules.json
@@ -445,6 +446,7 @@ The same trace ID is also received by the Go alert service (cross-stack fanout v
 - [ADR-001](adrs/ADR-001-sync-vs-async.md) — Sync vs. async: why both are used
 - [ADR-002](adrs/ADR-002-rabbitmq-selection.md) — Why RabbitMQ over Kafka/Redis Streams
 - [ADR-003](adrs/ADR-003-circuit-breaker.md) — Why circuit breaker as the resilience pattern
+- [ADR-004](adrs/ADR-004-graceful-shutdown-deferred.md) — Why graceful shutdown was explicitly deferred for A4, with rationale and upgrade sketch
 
 ## Environment Variables
 

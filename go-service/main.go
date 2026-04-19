@@ -31,9 +31,11 @@ func main() {
 
 	// Connect to database. NOTE: no defer db.Close() — every error path
 	// below calls os.Exit(1) (which skips defers), and on SIGTERM the
-	// process dies without running defers. Proper connection cleanup will
-	// arrive with the graceful-shutdown work tracked in TODO.md; adding a
-	// defer now would be decorative rather than functional.
+	// process dies without running defers. Abrupt termination is safe in
+	// this stack because Postgres is ACID and RabbitMQ requeues unacked
+	// messages. Graceful shutdown is an explicit deferred decision; see
+	// adrs/ADR-004-graceful-shutdown-deferred.md for rationale and the
+	// upgrade sketch for when it should be revisited.
 	db, err := database.Connect(cfg.DatabaseDSN)
 	if err != nil {
 		slog.Error("Failed to connect to database", "error", err)
