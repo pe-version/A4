@@ -1,0 +1,6 @@
+NAME                    CPU %     MEM USAGE / LIMIT
+a4-go-alert-service-1   0.02%     8.527MiB / 256MiB
+a4-go-service-3         14.70%    25.44MiB / 256MiB
+a4-go-service-4         14.23%    30.03MiB / 256MiB
+a4-go-service-5         15.93%    30.81MiB / 256MiB
+a4-sensor-db-1          50.48%    99.78MiB / 256MiB

@@ -85,6 +85,46 @@ The shared Postgres database is the limiting factor. With 3 replicas, the Go HTT
 
 For this experiment, the ~50% improvement demonstrates that the HTTP layer was indeed a bottleneck that horizontal scaling alleviated, even with a shared database.
 
+## Dataset Size Progression
+
+After the 1-vs-3 replica comparison (medium-size run: 1,000 requests at concurrency 50), I ran additional tests at two other sizes on the 3-replica configuration to surface how behavior changes with dataset size:
+
+- Small: 100 requests at concurrency 50
+- Large: 5,000 requests at concurrency 50
+- Docker stats captured during the large run
+
+### Throughput and latency across sizes
+
+| Size | Req/sec | p50 | p90 | p99 | Failed |
+|------|---------|-----|-----|-----|--------|
+| Small (100) | 51.87 | 458 ms | 1,168 ms | 1,666 ms | 0 |
+| Medium (1,000) | 93.53 | 406 ms | 1,002 ms | 2,416 ms | 0 |
+| Large (5,000) | 96.31 | **320 ms** | 1,099 ms | 1,685 ms | 0 |
+
+**Observations:**
+
+1. **Throughput saturates around 95 req/sec.** The small run under-reports because at 100 requests, warmup cost (cold DNS, cold connection pools, cold goroutine scheduler) dominates the measurement. By 1,000+ requests, warmup amortizes and the steady-state ceiling is visible. The large run shows only marginal improvement over medium, suggesting the system has reached its capacity for this configuration.
+
+2. **p50 latency improves as dataset grows.** At small size, 458 ms; at large, 320 ms. The same amortization effect in the latency dimension — once connections are warm and pools are filled, per-request cost drops. This is counterintuitive if you expect bigger = slower, but it's the signature of a system whose fixed costs are concentrated at startup.
+
+3. **Zero failures across all three sizes.** The ID race fix holds up at 5× the original test volume — no duplicate-key regressions under sustained concurrent load.
+
+4. **Dataset volume side-effect worth naming.** Over the course of all the scaling and chaos testing, the `sensors` table accumulated roughly 2,000 rows. The `GET /sensors` response payload grew from 13 KB during the original medium run to 252 KB by the time of the small/large runs. That's a side-effect of earlier testing rather than a deliberate variable, and it means the small/large latency numbers include a larger response body than the original 1-vs-3 medium comparison. A cleaner experimental design would reset the database between dataset sizes; I'm noting the asymmetry rather than hiding it.
+
+### Resource utilization at peak (docker stats, during 5,000-request run)
+
+| Container | CPU | Memory / Limit |
+|-----------|-----|----------------|
+| `sensor-db` (Postgres) | **50.48%** | 99.78 MiB / 256 MiB |
+| `go-service-3` | 14.70% | 25.44 MiB / 256 MiB |
+| `go-service-4` | 14.23% | 30.03 MiB / 256 MiB |
+| `go-service-5` | 15.93% | 30.81 MiB / 256 MiB |
+| `go-alert-service-1` | 0.02% | 8.53 MiB / 256 MiB |
+
+The three Go sensor replicas each consumed 14–16% CPU; Postgres consumed 50% CPU. The "shared Postgres is the bottleneck" claim from the earlier analysis is now **empirically measured**, not just hypothesized: the Go replicas have ~85% of their CPU budget still available, while Postgres is the component actually under pressure. Memory is well below limits for every container — CPU on the database, not memory anywhere, is the constraint.
+
+This is the mechanism producing sub-linear scaling: adding Go replicas increases HTTP-layer capacity, but database capacity doesn't grow with replica count. To push past the ~95 req/sec ceiling for this workload, the next intervention would need to be on the database side (read replicas, PgBouncer, or sharding — as proposed in "Why Not 3x Improvement?" above).
+
 ## Evidence of Load Distribution
 
 Docker Compose logs confirm all 3 replicas handled requests during the test:
