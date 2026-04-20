@@ -29,6 +29,10 @@ go-alert-service-1  | INFO Alert triggered alert_id=alert-005 rule_id=rule-004 t
 
 The same `trace_id` (`f5066d07...`) appears in both services, linking the sensor update to the resulting alerts across the RabbitMQ async boundary.
 
+![Distributed trace — single trace_id visible in both go-service (publishing) and go-alert-service (consuming + triggering alerts)](screenshots/distributed-trace.png)
+
+*Screenshot captured on re-verification: trace ID `097c095a-36ee-4162-9e64-00cecc16b86a` propagates from a PUT on `go-service-3` through RabbitMQ into `go-alert-service-1`, which triggers nine alerts against the accumulated rule set — all carrying the same trace ID.*
+
 ### Metrics
 
 The Go alert service exposes Prometheus-format metrics on `:9090/metrics`:
@@ -42,6 +46,10 @@ pipeline_info{mode="blocking",worker_count="4"} 1
 ```
 
 These counters are monotonically increasing and safe for concurrent access (atomic operations). They allow monitoring the health of the async pipeline without parsing logs.
+
+![Prometheus-format metrics endpoint output](screenshots/metrics-endpoint.png)
+
+*Screenshot from `docker compose exec go-alert-service wget -qO- http://localhost:9090/metrics` — all four counters plus the `pipeline_info` gauge visible.*
 
 ---
 
@@ -111,6 +119,10 @@ correlation_id=fe9a3d19... method=GET path=/sensors/sensor-001 status=200 durati
 ```
 
 All data persisted through the outage — sensor values were unchanged after recovery.
+
+![Post-fix DB outage transition: 200 → 500 → 503 → 200](screenshots/db-outage-transition.png)
+
+*Screenshot of the narrated sequence captured on re-verification. Note the write returns HTTP 503 (the post-fix behavior with the `ValidationError` sanitization) rather than the original HTTP 400 with a raw DNS error leak. The `AFTER recovery` line confirms the connection pool reconnected automatically without restarting the Go service.*
 
 ### Root Cause
 

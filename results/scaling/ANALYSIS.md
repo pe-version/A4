@@ -97,6 +97,10 @@ go-service-3  | INFO Request completed method=POST path=/sensors status=201 dura
 
 Each replica has a unique container name and correlation ID in its structured logs.
 
+![Three healthy Go sensor replicas behind the Nginx load balancer](screenshots/three-healthy-replicas.png)
+
+*Screenshot from `docker compose ps | grep -E "NAME|go-service"` showing three Go sensor service replicas (`a4-go-service-3`, `a4-go-service-4`, `a4-go-service-5`) all in the healthy state, each exposing port 8080 inside the Compose network for the Nginx LB to round-robin across.*
+
 ## Traffic Flow
 
 See `diagrams/scaling-traffic-flow.mmd` for the Mermaid diagram. Traffic flows:
